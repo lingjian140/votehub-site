@@ -1,25 +1,18 @@
 {
-  "name": "workspace",
+  "name": "votehub",
   "version": "1.0.0",
-  "description": "",
-  "main": "src/index.js",
+  "description": "投票站 - VoteHub",
+  "main": "server.js",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
-    "hono": "^4.13.14",
-    "jose": "^6.2.13",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.5.0"
   }

@@ -2,11 +2,11 @@ services:
   - name: votehub
     type: web
     env: node
-    buildCommand: npm install
+    buildCommand: mkdir -p data uploads && npm install
     startCommand: node server.js
     envVars:
       - key: JWT_SECRET
-        value: change-me-in-dashboard-xxx
+        value: change-me-in-dashboard
         sync: false
       - key: SEED_ADMIN_USERNAME
         value: xiaomu

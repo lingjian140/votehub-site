@@ -1,11 +1,9 @@
 FROM node:20-alpine
 WORKDIR /app
-COPY package*.json ./
+COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 COPY . .
-# 数据目录
-RUN mkdir -p /app/data /app/uploads
-VOLUME ["/app/data", "/app/uploads"]
-EXPOSE 3000
-ENV PORT=3000
+RUN mkdir -p data uploads
+ENV PORT=10000
+EXPOSE 10000
 CMD ["node", "server.js"]
