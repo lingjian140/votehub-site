@@ -191,3 +191,27 @@ th { font-weight: 600; color: var(--muted); }
   .hero h1 { font-size: 24px; }
   .form .row { grid-template-columns: 1fr; }
 }
+
+/* 备注卡片 */
+.note-box {
+  background: var(--note-bg, #fff8e1);
+  border-left: 4px solid var(--note-border, #ff9800);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin: 14px 0;
+}
+.note-box h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: var(--note-title, #e65100);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.note-box p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  line-height: 1.6;
+}

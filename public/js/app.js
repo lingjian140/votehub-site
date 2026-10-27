@@ -165,7 +165,7 @@ async function renderPolls() {
           ${p.is_anonymous ? '<span class="badge anon">匿名</span>' : ''}
         </div>
         <h3>${p.title}</h3>
-        <p class="desc">${p.description || '（无描述）'}</p>
+        ${p.description ? '<p class="desc">' + p.description + '</p>' : ''}
         <div class="poll-meta">
           <span>🗳️ ${total} 票</span>
           <span>👀 ${p.views_count} 浏览</span>
@@ -282,7 +282,7 @@ async function renderDetail(id) {
       ${poll.is_anonymous ? '<span class="badge anon">匿名投票</span>' : ''}
     </div>
     <h2>${poll.title}</h2>
-    <p class="desc">${poll.description || ''}</p>
+    ${poll.description ? '<div class="note-box"><h4>📝 备注</h4><p>' + poll.description + '</p></div>' : ''}
     <div class="detail-meta">
       <span class="poll-creator">
         <img src="${poll.creator_avatar}" onerror="this.src='/img/default-duck.svg'">
