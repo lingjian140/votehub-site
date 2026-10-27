@@ -61,6 +61,9 @@ function auth(req, res, next) {
 
 function requireAuth(req, res, next) {
   if (!req.user) return res.status(401).json({ error: '请先登录' });
+  const u = db.prepare('SELECT status FROM users WHERE id = ?').get(req.user.id);
+  if (!u) return res.status(401).json({ error: '账号不存在' });
+  if (u.status === 'banned') return res.status(403).json({ error: '账号已被封禁' });
   next();
 }
 
@@ -96,6 +99,7 @@ app.post('/api/login', (req, res) => {
   if (!row || !bcrypt.compareSync(password, row.password)) {
     return res.status(401).json({ error: '用户名或密码错误' });
   }
+  if (row.status === 'banned') return res.status(403).json({ error: '账号已被封禁，请联系管理员' });
   const token = jwt.sign({ id: row.id, username: row.username, role: row.role }, JWT_SECRET, { expiresIn: '30d' });
   res.json({
     token,
@@ -311,7 +315,7 @@ app.get('/api/users/:id', (req, res) => {
 
 // 管理员
 app.get('/api/admin/users', requireAdmin, (req, res) => {
-  const users = db.prepare('SELECT id, username, role, created_at FROM users ORDER BY id DESC').all();
+  const users = db.prepare('SELECT id, username, role, status, created_at FROM users ORDER BY id DESC').all();
   res.json(users);
 });
 
@@ -327,6 +331,28 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
   db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
+
+// 管理员：封禁/解封用户
+app.post('/api/admin/users/:id/ban', requireAdmin, (req, res) => {
+  const { ban } = req.body; // true=封禁, false=解封
+  if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: '不能操作自己' });
+  const newStatus = ban ? 'banned' : 'active';
+  db.prepare('UPDATE users SET status = ? WHERE id = ?').run(newStatus, req.params.id);
+  res.json({ ok: true, status: newStatus });
+});
+
+// 管理员：删除任意投票
+app.delete('/api/admin/polls/:id', requireAdmin, (req, res) => {
+  const p = db.prepare('SELECT id FROM polls WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: '投票不存在' });
+  db.prepare('DELETE FROM polls WHERE id = ?').run(req.params.id);
+  db.prepare('DELETE FROM options WHERE poll_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM votes WHERE poll_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM comments WHERE poll_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM poll_views WHERE poll_id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 
 // 错误处理
 app.use((err, req, res, next) => {

@@ -520,37 +520,114 @@ async function renderUserProfile(id) {
 async function renderAdmin() {
   if (!state.user) { location.hash = '#/login'; return; }
   if (state.user.role !== 'admin') { $('#app').innerHTML = '<div class="empty">需要管理员权限</div>'; return; }
-  const users = await api('/api/admin/users');
+
+  // === Tab 切换 ===
+  let currentTab = location.hash.includes('#/admin/polls') ? 'polls' : 'users';
+
   const html = `
     <div class="container">
       <h2>管理后台</h2>
-      <div class="card">
-        <h3>用户管理</h3>
-        <table><thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>注册时间</th><th>操作</th></tr></thead><tbody>
-          ${users.map(u => `<tr>
-            <td>${u.id}</td>
-            <td><a href="#/u/${u.id}">${u.username}</a></td>
-            <td>${u.role}</td>
-            <td>${fmtTime(u.created_at)}</td>
-            <td>
-              <button class="btn small" data-role="${u.id}">${u.role === 'admin' ? '降为普通用户' : '升为管理员'}</button>
-              ${u.id !== state.user.id ? `<button class="btn small danger" data-del="${u.id}">删除</button>` : ''}
-            </td>
-          </tr>`).join('')}
-        </tbody></table>
+      <div class="admin-tabs">
+        <button class="admin-tab ${currentTab==='users'?'active':''}" data-tab="users">👥 用户管理</button>
+        <button class="admin-tab ${currentTab==='polls'?'active':''}" data-tab="polls">📊 投票管理</button>
       </div>
+      <div id="admin-content"></div>
     </div>`;
   $('#app').innerHTML = html;
-  document.querySelectorAll('[data-role]').forEach(b => b.onclick = async () => {
-    const id = b.dataset.role;
-    const row = users.find(x => x.id === id);
-    const nextRole = row.role === 'admin' ? 'user' : 'admin';
-    await api(`/api/admin/users/${id}/role`, { method: 'POST', body: JSON.stringify({ role: nextRole }) });
-    toast('已更新', 'ok'); router();
+
+  const contentEl = $('#admin-content');
+
+  async function renderUsersTab() {
+    const users = await api('/api/admin/users');
+    contentEl.innerHTML = `
+      <div class="card">
+        <h3>用户管理（共 ${users.length} 人）</h3>
+        <table class="admin-table"><thead><tr>
+          <th>ID</th><th>用户名</th><th>角色</th><th>状态</th><th>注册时间</th><th>操作</th>
+        </tr></thead><tbody>
+        ${users.map(u => `<tr>
+          <td>${u.id}</td>
+          <td><a href="#/u/${u.id}">${u.username}</a>${u.id === state.user.id ? ' <span class="badge">我</span>' : ''}</td>
+          <td>${u.role === 'admin' ? '<span class="badge" style="background:#fef3c7;color:#92400e">管理员</span>' : '普通用户'}</td>
+          <td>${u.status === 'banned' ? '<span class="badge danger">已封禁</span>' : '<span class="badge">正常</span>'}</td>
+          <td>${fmtTime(u.created_at)}</td>
+          <td>
+            <button class="btn small" data-role="${u.id}">${u.role === 'admin' ? '降为普通用户' : '升为管理员'}</button>
+            ${u.id !== state.user.id ? `
+              <button class="btn small ${u.status === 'banned' ? 'success' : 'danger'}" data-ban="${u.id}">
+                ${u.status === 'banned' ? '解封' : '封禁'}
+              </button>
+              <button class="btn small danger" data-del="${u.id}">删除</button>
+            ` : '<span style="color:var(--muted)">—</span>'}
+          </td>
+        </tr>`).join('')}
+        </tbody></table>
+      </div>`;
+
+    contentEl.querySelectorAll('[data-role]').forEach(b => b.onclick = async () => {
+      const row = users.find(x => x.id === parseInt(b.dataset.role));
+      const nextRole = row.role === 'admin' ? 'user' : 'admin';
+      if (!confirm(`确认把"${row.username}"${nextRole === 'admin' ? '升为管理员' : '降为普通用户'}？`)) return;
+      await api(`/api/admin/users/${b.dataset.role}/role`, { method: 'POST', body: JSON.stringify({ role: nextRole }) });
+      toast('已更新', 'ok'); renderUsersTab();
+    });
+
+    contentEl.querySelectorAll('[data-ban]').forEach(b => b.onclick = async () => {
+      const row = users.find(x => x.id === parseInt(b.dataset.ban));
+      const willBan = row.status !== 'banned';
+      if (!confirm(`确认${willBan ? '封禁' : '解封'}用户"${row.username}"？${willBan ? '封禁后该用户将无法登录和进行任何操作。' : ''}`)) return;
+      await api(`/api/admin/users/${b.dataset.ban}/ban`, { method: 'POST', body: JSON.stringify({ ban: willBan }) });
+      toast(willBan ? '已封禁' : '已解封', 'ok'); renderUsersTab();
+    });
+
+    contentEl.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+      const row = users.find(x => x.id === parseInt(b.dataset.del));
+      if (!confirm(`⚠️ 确认永久删除用户"${row.username}"？此操作不可恢复，该用户创建的投票也会保留（创作者会显示为"已删除用户"）。`)) return;
+      await api(`/api/admin/users/${b.dataset.del}`, { method: 'DELETE' });
+      toast('已删除', 'ok'); renderUsersTab();
+    });
+  }
+
+  async function renderPollsTab() {
+    const polls = await api('/api/polls?limit=100');
+    const list = polls.polls || polls;
+    contentEl.innerHTML = `
+      <div class="card">
+        <h3>投票管理（共 ${polls.total || list.length} 条）</h3>
+        <table class="admin-table"><thead><tr>
+          <th>ID</th><th>标题</th><th>创建者</th><th>状态</th><th>票数</th><th>创建时间</th><th>操作</th>
+        </tr></thead><tbody>
+        ${list.map(p => `<tr>
+          <td>${p.id}</td>
+          <td><a href="#/p/${p.id}">${p.title}</a></td>
+          <td>${p.creator_name || '已删除用户'}</td>
+          <td>${p.status === 'active' ? '<span class="badge">进行中</span>' : '<span class="badge danger">已关闭</span>'}</td>
+          <td>${p.votes_count || 0}</td>
+          <td>${fmtTime(p.created_at)}</td>
+          <td>
+            <button class="btn small danger" data-delpoll="${p.id}">删除</button>
+          </td>
+        </tr>`).join('')}
+        ${list.length === 0 ? '<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted)">暂无投票</td></tr>' : ''}
+        </tbody></table>
+      </div>`;
+
+    contentEl.querySelectorAll('[data-delpoll]').forEach(b => b.onclick = async () => {
+      if (!confirm('⚠️ 确认永久删除此投票？所有选项、投票、评论都会删除，不可恢复。')) return;
+      await api(`/api/admin/polls/${b.dataset.delpoll}`, { method: 'DELETE' });
+      toast('已删除', 'ok'); renderPollsTab();
+    });
+  }
+
+  // Tab 切换
+  $('#app').querySelectorAll('.admin-tab').forEach(t => t.onclick = () => {
+    currentTab = t.dataset.tab;
+    $('#app').querySelectorAll('.admin-tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    if (currentTab === 'users') renderUsersTab(); else renderPollsTab();
   });
-  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-    if (!confirm('确认删除此用户？')) return;
-    await api(`/api/admin/users/${b.dataset.del}`, { method: 'DELETE' });
-    toast('已删除', 'ok'); router();
-  });
+
+  // 初始渲染
+  if (currentTab === 'users') renderUsersTab(); else renderPollsTab();
 }
+

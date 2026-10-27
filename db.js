@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
   password TEXT NOT NULL,
   avatar TEXT DEFAULT '/img/default-duck.svg',
   role TEXT DEFAULT 'user',
+  status TEXT DEFAULT 'active',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -77,6 +78,9 @@ CREATE TABLE IF NOT EXISTS poll_views (
   FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE
 );
 `);
+
+// 旧表兼容：补 status 字段
+try { db.exec("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'"); } catch (e) {}
 
 // 种子数据：每次启动都确保存在（INSERT OR IGNORE 保证幂等）
 const adminUser = process.env.SEED_ADMIN_USERNAME;
