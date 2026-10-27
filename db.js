@@ -3,7 +3,14 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-const db = new Database(path.join(__dirname, 'data', 'vote.db'));
+// 确保 data 目录存在
+const fs = require('fs');
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) {
+  try { fs.mkdirSync(dataDir, { recursive: true }); } catch (e) {}
+}
+
+const db = new Database(path.join(dataDir, 'vote.db'));
 db.pragma('journal_mode = WAL');
 
 db.exec(`
@@ -71,25 +78,18 @@ CREATE TABLE IF NOT EXISTS poll_views (
 );
 `);
 
-// 种子数据（从环境变量读取，避免硬编码敏感账号）
-const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
-if (userCount === 0) {
-  const insertUser = db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)');
-  let seeded = 0;
-  const adminUser = process.env.SEED_ADMIN_USERNAME;
-  const adminPass = process.env.SEED_ADMIN_PASSWORD;
-  if (adminUser && adminPass) {
-    insertUser.run(adminUser, bcrypt.hashSync(adminPass, 10), 'admin');
-    seeded++;
-  }
-  const userUser = process.env.SEED_USER_USERNAME;
-  const userPass = process.env.SEED_USER_PASSWORD;
-  if (userUser && userPass) {
-    insertUser.run(userUser, bcrypt.hashSync(userPass, 10), 'user');
-    seeded++;
-  }
-  if (seeded > 0) console.log(`种子账号已创建: ${seeded} 个（凭据不在日志中打印）`);
-  else console.log('未配置 SEED_* 环境变量，跳过种子账号创建');
+// 种子数据：每次启动都确保存在（INSERT OR IGNORE 保证幂等）
+const adminUser = process.env.SEED_ADMIN_USERNAME;
+const adminPass = process.env.SEED_ADMIN_PASSWORD;
+if (adminUser && adminPass) {
+  db.prepare('INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)')
+    .run(adminUser, bcrypt.hashSync(adminPass, 10), 'admin');
+}
+const userUser = process.env.SEED_USER_USERNAME;
+const userPass = process.env.SEED_USER_PASSWORD;
+if (userUser && userPass) {
+  db.prepare('INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)')
+    .run(userUser, bcrypt.hashSync(userPass, 10), 'user');
 }
 
 module.exports = db;
