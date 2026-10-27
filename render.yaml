@@ -1,0 +1,20 @@
+services:
+  - name: votehub
+    type: web
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: JWT_SECRET
+        value: change-me-in-dashboard-xxx
+        sync: false
+      - key: SEED_ADMIN_USERNAME
+        value: xiaomu
+      - key: SEED_ADMIN_PASSWORD
+        value: xiaomu
+      - key: SEED_USER_USERNAME
+        value: aimin
+      - key: SEED_USER_PASSWORD
+        value: mu123123123
+      - key: NODE_VERSION
+        value: "20"

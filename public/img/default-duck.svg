@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="70%">
+      <stop offset="0%" stop-color="#ffe9a8"/>
+      <stop offset="100%" stop-color="#ffcd3c"/>
+    </radialGradient>
+    <radialGradient id="body" cx="50%" cy="35%" r="70%">
+      <stop offset="0%" stop-color="#fff8c4"/>
+      <stop offset="100%" stop-color="#ffd93d"/>
+    </radialGradient>
+  </defs>
+  <!-- 背景圆 -->
+  <circle cx="100" cy="100" r="98" fill="url(#bg)" stroke="#e0a800" stroke-width="2"/>
+  <!-- 身体 -->
+  <ellipse cx="100" cy="130" rx="55" ry="48" fill="url(#body)" stroke="#d4a017" stroke-width="2"/>
+  <!-- 翅膀 -->
+  <ellipse cx="60" cy="135" rx="18" ry="25" fill="#ffd166" stroke="#d4a017" stroke-width="1.5" transform="rotate(-15 60 135)"/>
+  <ellipse cx="140" cy="135" rx="18" ry="25" fill="#ffd166" stroke="#d4a017" stroke-width="1.5" transform="rotate(15 140 135)"/>
+  <!-- 头 -->
+  <circle cx="100" cy="80" r="42" fill="url(#body)" stroke="#d4a017" stroke-width="2"/>
+  <!-- 嘴（鸭子标志性扁嘴） -->
+  <ellipse cx="100" cy="92" rx="26" ry="10" fill="#ff7b29" stroke="#c85a0a" stroke-width="1.5"/>
+  <line x1="78" y1="92" x2="122" y2="92" stroke="#c85a0a" stroke-width="1"/>
+  <!-- 眼睛 -->
+  <circle cx="84" cy="72" r="9" fill="white" stroke="#333" stroke-width="1.5"/>
+  <circle cx="116" cy="72" r="9" fill="white" stroke="#333" stroke-width="1.5"/>
+  <circle cx="86" cy="74" r="5" fill="#222"/>
+  <circle cx="118" cy="74" r="5" fill="#222"/>
+  <circle cx="87" cy="72" r="2" fill="white"/>
+  <circle cx="119" cy="72" r="2" fill="white"/>
+  <!-- 腮红 -->
+  <ellipse cx="72" cy="95" rx="7" ry="4" fill="#ff9f9f" opacity="0.6"/>
+  <ellipse cx="128" cy="95" rx="7" ry="4" fill="#ff9f9f" opacity="0.6"/>
+  <!-- 帽子（标志性） -->
+  <path d="M62 52 Q100 20 138 52 L138 62 Q100 48 62 62 Z" fill="#c0392b" stroke="#8e271e" stroke-width="1.5"/>
+  <circle cx="100" cy="36" r="6" fill="#e74c3c" stroke="#8e271e" stroke-width="1"/>
+  <path d="M62 60 L138 60 L138 66 L62 66 Z" fill="#e74c3c" stroke="#8e271e" stroke-width="1"/>
+  <!-- 脚 -->
+  <ellipse cx="82" cy="176" rx="14" ry="6" fill="#ff7b29" stroke="#c85a0a" stroke-width="1.5"/>
+  <ellipse cx="118" cy="176" rx="14" ry="6" fill="#ff7b29" stroke="#c85a0a" stroke-width="1.5"/>
+</svg>
