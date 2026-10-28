@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 public class PublishActivity extends AppCompatActivity {
-    private EditText etTitle, etContent;
+    private EditText etTitle, etContent, etPassword;
     private LinearLayout imageBox, boardRow, optBox;
     private TextView btnPublish, tvVideo, tvPoll;
     private View llPoll;
@@ -72,6 +72,7 @@ public class PublishActivity extends AppCompatActivity {
         setContentView(R.layout.activity_publish);
         etTitle = findViewById(R.id.et_title);
         etContent = findViewById(R.id.et_content);
+        etPassword = findViewById(R.id.et_password);
         imageBox = findViewById(R.id.image_box);
         boardRow = findViewById(R.id.board_row);
         btnPublish = findViewById(R.id.btn_publish);
@@ -217,6 +218,8 @@ public class PublishActivity extends AppCompatActivity {
         fields.put("title", etTitle.getText().toString().trim());
         fields.put("content", content);
         fields.put("topic", topic);
+        String pwd = etPassword.getText().toString().trim();
+        if (!pwd.isEmpty()) fields.put("access_password", pwd);
         if (pollMode) {
             fields.put("type", "poll");
             fields.put("question", etTitle.getText().toString().trim());

@@ -60,6 +60,20 @@
                     android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/badge_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/bg_tag"
+                    android:paddingStart="5dp"
+                    android:paddingTop="1dp"
+                    android:paddingEnd="5dp"
+                    android:paddingBottom="1dp"
+                    android:textColor="@color/green"
+                    android:textSize="9sp"
+                    android:visibility="gone" />
+
+                <TextView
                     android:id="@+id/badge_pin"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -125,32 +139,45 @@
         android:layout_marginTop="10dp"
         android:orientation="vertical" />
 
-    <LinearLayout
+    <FrameLayout
         android:id="@+id/video_box"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="180dp"
         android:layout_marginTop="10dp"
         android:background="@drawable/bg_search"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="12dp"
         android:visibility="gone">
 
+        <ImageView
+            android:id="@+id/video_thumb"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="视频预览"
+            android:scaleType="centerCrop" />
+
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_play"
+            android:gravity="center"
             android:text="▶"
-            android:textColor="@color/green"
-            android:textSize="18sp" />
+            android:textColor="@color/white"
+            android:textSize="22sp" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="点击播放视频"
-            android:textColor="@color/text_sub"
-            android:textSize="13sp" />
-    </LinearLayout>
+            android:layout_gravity="bottom|start"
+            android:layout_margin="8dp"
+            android:background="#99000000"
+            android:paddingStart="6dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="2dp"
+            android:text="视频 · 点击播放"
+            android:textColor="@color/white"
+            android:textSize="10sp" />
+    </FrameLayout>
 
     <LinearLayout
         android:id="@+id/poll_box"

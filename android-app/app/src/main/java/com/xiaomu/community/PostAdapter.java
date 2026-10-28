@@ -9,6 +9,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -17,6 +18,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
+import com.bumptech.glide.request.RequestOptions;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -84,6 +86,17 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.VH> {
         h.time.setText(TimeUtil.ago(p.optString("created_at")));
         h.badgeAdmin.setVisibility("admin".equals(p.optString("user_role")) ? View.VISIBLE : View.GONE);
         h.badgePin.setVisibility(p.optInt("pinned", 0) == 1 ? View.VISIBLE : View.GONE);
+
+        String userTitle = p.optString("user_title", "");
+        if (userTitle.isEmpty()) {
+            h.badgeTitle.setVisibility(View.GONE);
+        } else {
+            h.badgeTitle.setVisibility(View.VISIBLE);
+            h.badgeTitle.setText(userTitle);
+            try {
+                h.badgeTitle.setTextColor(Color.parseColor(p.optString("user_title_color", "#00B34F")));
+            } catch (Exception ignored) {}
+        }
         Glide.with(ctx).load(Api.mediaUrl(p.optString("avatar"))).circleCrop().into(h.avatar);
         h.avatar.setOnClickListener(v -> listener.onUser(p));
         h.username.setOnClickListener(v -> listener.onUser(p));
@@ -98,21 +111,41 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.VH> {
             h.title.setVisibility(View.VISIBLE);
             h.title.setText(title);
         }
-        h.content.setText(p.optString("content"));
+        boolean locked = p.optBoolean("locked", false);
+        if (locked) {
+            h.content.setVisibility(View.VISIBLE);
+            h.content.setText("🔒 该内容需要密码访问，点击查看");
+            h.images.setVisibility(View.GONE);
+            h.images.removeAllViews();
+            h.videoBox.setVisibility(View.GONE);
+            h.pollBox.setVisibility(View.GONE);
+            h.pollBox.removeAllViews();
+        } else {
+            h.content.setVisibility(View.VISIBLE);
+            h.content.setText(p.optString("content"));
 
-        bindImages(h.images, p.optJSONArray("images"), ctx);
-        bindPoll(h.pollBox, p.optJSONObject("poll"), p, listener, ctx);
+            bindImages(h.images, p.optJSONArray("images"), ctx);
+            bindPoll(h.pollBox, p.optJSONObject("poll"), p, listener, ctx);
 
-        String video = p.optString("video", "");
-        h.videoBox.setVisibility(video.isEmpty() ? View.GONE : View.VISIBLE);
-        h.videoBox.setOnClickListener(v -> {
-            try {
-                Intent it = new Intent(Intent.ACTION_VIEW);
-                it.setDataAndType(Uri.parse(Api.mediaUrl(video)), "video/*");
-                it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                ctx.startActivity(it);
-            } catch (Exception ignored) {}
-        });
+            String video = p.optString("video", "");
+            if (video.isEmpty()) {
+                h.videoBox.setVisibility(View.GONE);
+            } else {
+                h.videoBox.setVisibility(View.VISIBLE);
+                Glide.with(ctx).load(Api.mediaUrl(video))
+                        .apply(RequestOptions.frameOf(0))
+                        .transform(new RoundedCorners(dp(ctx, 10)))
+                        .into(h.videoThumb);
+                h.videoBox.setOnClickListener(v -> {
+                    try {
+                        Intent it = new Intent(Intent.ACTION_VIEW);
+                        it.setDataAndType(Uri.parse(Api.mediaUrl(video)), "video/*");
+                        it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        ctx.startActivity(it);
+                    } catch (Exception ignored) {}
+                });
+            }
+        }
 
         h.countComment.setText(String.valueOf(p.optInt("comments_count", 0)));
         h.countLike.setText(String.valueOf(p.optInt("likes_count", 0)));
@@ -217,9 +250,10 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.VH> {
     public int getItemCount() { return data.size(); }
 
     static class VH extends RecyclerView.ViewHolder {
-        ImageView avatar, icLike;
-        TextView username, time, board, title, content, countLike, countComment, badgeAdmin, badgePin;
-        LinearLayout images, actLike, actComment, actShare, videoBox, pollBox;
+        ImageView avatar, icLike, videoThumb;
+        TextView username, time, board, title, content, countLike, countComment, badgeAdmin, badgePin, badgeTitle;
+        LinearLayout images, actLike, actComment, actShare, pollBox;
+        FrameLayout videoBox;
 
         VH(@NonNull View v) {
             super(v);
@@ -234,8 +268,10 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.VH> {
             countComment = v.findViewById(R.id.count_comment);
             badgeAdmin = v.findViewById(R.id.badge_admin);
             badgePin = v.findViewById(R.id.badge_pin);
+            badgeTitle = v.findViewById(R.id.badge_title);
             images = v.findViewById(R.id.images);
             videoBox = v.findViewById(R.id.video_box);
+            videoThumb = v.findViewById(R.id.video_thumb);
             pollBox = v.findViewById(R.id.poll_box);
             actLike = v.findViewById(R.id.act_like);
             actComment = v.findViewById(R.id.act_comment);

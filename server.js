@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'vote-site-secret-key-change-in-prod';
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 // 全局鉴权中间件：尝试解析 token，不强制要求登录
 app.use((req, res, next) => {
@@ -170,15 +170,18 @@ app.post('/api/login', (req, res) => {
   }
   if (row.status === 'banned') return res.status(403).json({ error: '账号已被封禁，请联系管理员' });
   const token = jwt.sign({ id: row.id, username: row.username, role: row.role }, JWT_SECRET, { expiresIn: '30d' });
+  const t = row.title_id ? db.prepare('SELECT name, color FROM titles WHERE id = ?').get(row.title_id) : null;
   res.json({
     token,
-    user: { id: row.id, username: row.username, role: row.role, avatar: row.avatar, points: row.points || 0, level: row.level || 1, is_developer: row.is_developer || 0 }
+    user: { id: row.id, username: row.username, role: row.role, avatar: row.avatar, points: row.points || 0, level: row.level || 1, is_developer: row.is_developer || 0, title_id: row.title_id || null, title: t ? t.name : null, title_color: t ? t.color : null }
   });
 });
 
 app.get('/api/me', auth, (req, res) => {
   if (!req.user) return res.json({ user: null });
-  const row = db.prepare('SELECT id, username, avatar, role, created_at, bio, points, level, is_developer, can_post, muted_until FROM users WHERE id = ?').get(req.user.id);
+  const row = db.prepare(`SELECT u.id, u.username, u.avatar, u.role, u.created_at, u.bio, u.points, u.level, u.is_developer, u.can_post, u.muted_until,
+      u.title_id, t.name AS title, t.color AS title_color
+    FROM users u LEFT JOIN titles t ON t.id = u.title_id WHERE u.id = ?`).get(req.user.id);
   res.json({ user: row });
 });
 
@@ -384,8 +387,9 @@ app.get('/api/users/:id', (req, res) => {
 
 // 管理员
 app.get('/api/admin/users', requireAdmin, (req, res) => {
-  const users = db.prepare(`SELECT id, username, role, status, avatar, muted_until, mute_reason, can_post, bio, points, level, is_developer, created_at
-    FROM users ORDER BY id DESC`).all();
+  const users = db.prepare(`SELECT u.id, u.username, u.role, u.status, u.avatar, u.muted_until, u.mute_reason, u.can_post, u.bio, u.points, u.level, u.is_developer, u.created_at,
+      u.title_id, t.name AS title, t.color AS title_color
+    FROM users u LEFT JOIN titles t ON t.id = u.title_id ORDER BY u.id DESC`).all();
   res.json(users);
 });
 
@@ -454,6 +458,24 @@ function guardWrite(req, res) {
   return true;
 }
 
+// 帖子密码访问
+function canViewPost(p, req) {
+  if (!p.access_password) return true;
+  if (req.user && (Number(p.user_id) === Number(req.user.id) || req.user.role === 'admin' || isDeveloper(req.user.id))) return true;
+  const pw = req.query.post_password || req.headers['x-post-password'] || req.query.pw;
+  return !!pw && String(pw) === String(p.access_password);
+}
+function applyLocked(p) {
+  p.locked = true;
+  p.has_password = true;
+  p.content = '';
+  p.images = [];
+  p.video = null;
+  p.poll = null;
+  p.comments = [];
+  return p;
+}
+
 app.get('/api/boards', (req, res) => res.json(getBoards()));
 app.get('/api/topics', (req, res) => res.json(getBoards()));
 
@@ -485,16 +507,19 @@ app.get('/api/posts', auth, (req, res) => {
   const rows = db.prepare(`
     SELECT p.*, u.username, u.avatar, u.role AS user_role, u.status AS user_status,
       u.points AS user_points, u.level AS user_level, u.is_developer AS user_developer,
+      u.title_id AS user_title_id, t.name AS user_title, t.color AS user_title_color,
       (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) likes_count,
       (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) comments_count,
       (SELECT COUNT(*) FROM post_views v WHERE v.post_id = p.id) views_count,
       EXISTS(SELECT 1 FROM post_likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) liked
     FROM posts p LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN titles t ON t.id = u.title_id
     ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}
   `).all(req.user ? req.user.id : 0, ...params);
   rows.forEach(r => {
     try { r.images = JSON.parse(r.images || '[]'); } catch { r.images = []; }
     r.poll = pollOf(r.id, req.user ? req.user.id : 0);
+    if (!canViewPost(r, req)) applyLocked(r);
   });
 
   const total = db.prepare(`SELECT COUNT(*) c FROM posts p ${where}`).get(...params).c;
@@ -504,7 +529,7 @@ app.get('/api/posts', auth, (req, res) => {
 // 发帖（支持图片、视频、投票）
 app.post('/api/posts', requireAuth, postUpload.fields([{ name: 'images', maxCount: 9 }, { name: 'video', maxCount: 1 }]), (req, res) => {
   if (!guardWrite(req, res)) return;
-  const { title = '', content = '', topic = 'life', type = 'post' } = req.body;
+  const { title = '', content = '', topic = 'life', type = 'post', access_password = '' } = req.body;
   const text = String(content).trim();
   const isPoll = type === 'poll';
   if (!text && !isPoll) return res.status(400).json({ error: '内容不能为空' });
@@ -520,8 +545,9 @@ app.post('/api/posts', requireAuth, postUpload.fields([{ name: 'images', maxCoun
   options = options.map(s => String(s).trim()).filter(Boolean).slice(0, 10);
   if (isPoll && options.length < 2) return res.status(400).json({ error: '投票至少需要 2 个选项' });
 
-  const info = db.prepare('INSERT INTO posts (user_id, title, content, topic, images, type, video) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(req.user.id, String(title).trim().slice(0, 100), text || '', t, JSON.stringify(images), isPoll ? 'poll' : 'post', video);
+  const pwd = String(access_password || '').trim().slice(0, 50);
+  const info = db.prepare('INSERT INTO posts (user_id, title, content, topic, images, type, video, access_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, String(title).trim().slice(0, 100), text || '', t, JSON.stringify(images), isPoll ? 'poll' : 'post', video, pwd || null);
   if (isPoll) {
     db.prepare('INSERT OR REPLACE INTO post_polls (post_id, question) VALUES (?, ?)').run(info.lastInsertRowid, String(req.body.question || title || '').slice(0, 100));
     const st = db.prepare('INSERT INTO post_poll_options (post_id, text, sort_order) VALUES (?, ?, ?)');
@@ -537,21 +563,37 @@ app.get('/api/posts/:id', auth, (req, res) => {
   const p = db.prepare(`
     SELECT p.*, u.username, u.avatar, u.role AS user_role,
       u.points AS user_points, u.level AS user_level, u.is_developer AS user_developer,
+      u.title_id AS user_title_id, t.name AS user_title, t.color AS user_title_color,
       (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) likes_count,
       (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) comments_count,
       (SELECT COUNT(*) FROM post_views v WHERE v.post_id = p.id) views_count,
       EXISTS(SELECT 1 FROM post_likes l2 WHERE l2.post_id = p.id AND l2.user_id = ?) liked
-    FROM posts p LEFT JOIN users u ON u.id = p.user_id WHERE p.id = ?
+    FROM posts p LEFT JOIN users u ON u.id = p.user_id
+    LEFT JOIN titles t ON t.id = u.title_id WHERE p.id = ?
   `).get(req.user ? req.user.id : 0, req.params.id);
   if (!p) return res.status(404).json({ error: '帖子不存在' });
   try { p.images = JSON.parse(p.images || '[]'); } catch { p.images = []; }
   p.poll = pollOf(p.id, req.user ? req.user.id : 0);
   db.prepare('INSERT INTO post_views (post_id, user_id) VALUES (?, ?)').run(p.id, req.user ? req.user.id : null);
+  if (!canViewPost(p, req)) {
+    p.has_password = true;
+    applyLocked(p);
+    return res.json(p);
+  }
   p.comments = db.prepare(`
     SELECT c.*, u.username, u.avatar, u.role AS user_role, u.level AS user_level FROM post_comments c
     LEFT JOIN users u ON u.id = c.user_id WHERE c.post_id = ? ORDER BY c.id ASC LIMIT 300
   `).all(p.id);
   res.json(p);
+});
+
+// 帖子密码解锁（校验密码，客户端带 post_password 重新拉取）
+app.post('/api/posts/:id/unlock', (req, res) => {
+  const p = db.prepare('SELECT id, access_password FROM posts WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: '帖子不存在' });
+  if (!p.access_password) return res.json({ ok: true });
+  if (String(req.body.password || '') !== String(p.access_password)) return res.status(403).json({ error: '密码错误' });
+  res.json({ ok: true });
 });
 
 // 帖子投票
@@ -654,7 +696,9 @@ app.get('/api/notifications', requireAuth, (req, res) => {
 
 // 用户主页
 app.get('/api/users/:id/profile', auth, (req, res) => {
-  const u = db.prepare('SELECT id, username, avatar, role, status, created_at, bio, points, level, is_developer FROM users WHERE id = ?').get(req.params.id);
+  const u = db.prepare(`SELECT u.id, u.username, u.avatar, u.role, u.status, u.created_at, u.bio, u.points, u.level, u.is_developer,
+      u.title_id, t.name AS title, t.color AS title_color
+    FROM users u LEFT JOIN titles t ON t.id = u.title_id WHERE u.id = ?`).get(req.params.id);
   if (!u) return res.status(404).json({ error: '用户不存在' });
   u.posts_count = db.prepare("SELECT COUNT(*) c FROM posts WHERE user_id = ? AND status='published'").get(u.id).c;
   u.likes_received = db.prepare(`SELECT COUNT(*) c FROM post_likes l JOIN posts p ON p.id = l.post_id WHERE p.user_id = ?`).get(u.id).c;
@@ -1105,6 +1149,157 @@ app.post('/api/me/password', requireAuth, (req, res) => {
   if (!new_password || String(new_password).length < 4) return res.status(400).json({ error: '新密码至少4位' });
   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(bcrypt.hashSync(String(new_password), 10), req.user.id);
   res.json({ ok: true });
+});
+
+// ===== 开发者：头衔 / 等级 / 账号导入导出 =====
+app.get('/api/titles', (req, res) => {
+  res.json(db.prepare('SELECT id, name, color FROM titles ORDER BY id').all());
+});
+
+app.get('/api/dev/users', requireDeveloper, (req, res) => {
+  res.json(db.prepare(`SELECT u.id, u.username, u.role, u.status, u.points, u.level, u.is_developer,
+      u.title_id, t.name AS title, t.color AS title_color, u.created_at
+    FROM users u LEFT JOIN titles t ON t.id = u.title_id ORDER BY u.id`).all());
+});
+
+app.post('/api/dev/titles', requireDeveloper, (req, res) => {
+  const name = String(req.body.name || '').trim().slice(0, 20);
+  const color = String(req.body.color || '#00B34F').slice(0, 20);
+  if (!name) return res.status(400).json({ error: '头衔名称必填' });
+  try {
+    const info = db.prepare('INSERT INTO titles (name, color) VALUES (?, ?)').run(name, color);
+    res.json({ id: info.lastInsertRowid, name, color });
+  } catch (e) {
+    res.status(400).json({ error: '头衔名称已存在' });
+  }
+});
+
+app.put('/api/dev/titles/:id', requireDeveloper, (req, res) => {
+  const t = db.prepare('SELECT * FROM titles WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: '头衔不存在' });
+  const name = req.body.name !== undefined ? String(req.body.name).trim().slice(0, 20) : t.name;
+  const color = req.body.color !== undefined ? String(req.body.color).slice(0, 20) : t.color;
+  if (!name) return res.status(400).json({ error: '头衔名称必填' });
+  try {
+    db.prepare('UPDATE titles SET name = ?, color = ? WHERE id = ?').run(name, color, t.id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: '头衔名称已存在' });
+  }
+});
+
+app.delete('/api/dev/titles/:id', requireDeveloper, (req, res) => {
+  db.prepare('UPDATE users SET title_id = NULL WHERE title_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM titles WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// 开发者修改用户等级 / 积分 / 头衔
+app.post('/api/dev/users/:id', requireDeveloper, (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!u) return res.status(404).json({ error: '用户不存在' });
+  const { level, points, title_id } = req.body;
+  let pts = Number(u.points) || 0;
+  let lv = Number(u.level) || 1;
+  if (points !== undefined) {
+    pts = Math.max(0, parseInt(points) || 0);
+    lv = levelFor(pts);
+  }
+  if (level !== undefined) {
+    lv = Math.max(1, Math.min(99, parseInt(level) || 1));
+  }
+  let tid = u.title_id;
+  if (title_id !== undefined) {
+    if (title_id === null || title_id === '' || Number(title_id) === 0) tid = null;
+    else {
+      const t = db.prepare('SELECT id FROM titles WHERE id = ?').get(title_id);
+      if (!t) return res.status(400).json({ error: '头衔不存在' });
+      tid = t.id;
+    }
+  }
+  db.prepare('UPDATE users SET level = ?, points = ?, title_id = ? WHERE id = ?').run(lv, pts, tid, u.id);
+  res.json({ ok: true, level: lv, points: pts, title_id: tid });
+});
+
+const EXPORT_TABLES = ['users', 'titles', 'boards', 'posts', 'post_likes', 'post_comments', 'post_views',
+  'post_polls', 'post_poll_options', 'post_poll_votes', 'chat_messages', 'follows', 'friendships',
+  'private_messages', 'checkins', 'points_log', 'rewards', 'redemptions', 'settings'];
+
+// 导出全部账号数据（含密码哈希，便于完整迁移）
+app.get('/api/dev/export', requireDeveloper, (req, res) => {
+  const data = { version: 1, exported_at: new Date().toISOString() };
+  EXPORT_TABLES.forEach(t => { data[t] = db.prepare(`SELECT * FROM ${t}`).all(); });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="xiaomu-accounts-' + Date.now() + '.json"');
+  res.send(JSON.stringify(data, null, 1));
+});
+
+// 导出账号 CSV（密码为 bcrypt 哈希）
+app.get('/api/dev/export.csv', requireDeveloper, (req, res) => {
+  const rows = db.prepare(`SELECT u.username, u.password AS password_hash, u.role, u.status, u.points, u.level,
+      t.name AS title, u.is_developer, u.created_at FROM users u LEFT JOIN titles t ON t.id = u.title_id ORDER BY u.id`).all();
+  const head = ['username', 'password_hash', 'role', 'status', 'points', 'level', 'title', 'is_developer', 'created_at'];
+  const esc = v => '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
+  const csv = '\uFEFF' + head.join(',') + '\n' + rows.map(r => head.map(k => esc(r[k])).join(',')).join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="xiaomu-users-' + Date.now() + '.csv"');
+  res.send(csv);
+});
+
+// 导入账号数据（默认合并，不删除现有账号；password 支持明文或 bcrypt 哈希）
+app.post('/api/dev/import', requireDeveloper, (req, res) => {
+  const body = req.body || {};
+  const data = body.data || body;
+  const tables = EXPORT_TABLES.filter(t => Array.isArray(data[t]));
+  if (!tables.length) return res.status(400).json({ error: '没有可导入的数据（需 JSON 导出文件）' });
+  const result = { users: { inserted: 0, updated: 0, skipped: 0 }, tables: {} };
+
+  const upsertUser = row => {
+    if (!row || !row.username) { result.users.skipped++; return; }
+    let existing = row.id ? db.prepare('SELECT id FROM users WHERE id = ?').get(row.id) : null;
+    if (!existing) existing = db.prepare('SELECT id FROM users WHERE username = ?').get(row.username);
+    let pw = row.password;
+    if (pw && !/^\$2[aby]\$/.test(String(pw))) pw = bcrypt.hashSync(String(pw), 10);
+    const fields = {
+      username: row.username, password: pw, avatar: row.avatar, role: row.role, status: row.status,
+      muted_until: row.muted_until, mute_reason: row.mute_reason, can_post: row.can_post, bio: row.bio,
+      points: row.points, level: row.level, is_developer: row.is_developer, title_id: row.title_id
+    };
+    const keys = Object.keys(fields).filter(k => fields[k] !== undefined);
+    if (!keys.length) { result.users.skipped++; return; }
+    try {
+      if (existing) {
+        db.prepare(`UPDATE users SET ${keys.map(k => k + ' = ?').join(', ')} WHERE id = ?`)
+          .run(...keys.map(k => fields[k]), existing.id);
+        result.users.updated++;
+      } else {
+        const info = db.prepare(`INSERT INTO users (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`)
+          .run(...keys.map(k => fields[k]));
+        result.users.inserted++;
+      }
+    } catch (e) { result.users.skipped++; }
+  };
+
+  if (Array.isArray(data.users)) data.users.forEach(upsertUser);
+
+  tables.filter(t => t !== 'users').forEach(table => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+    let n = 0;
+    for (const row of data[table]) {
+      if (!row || typeof row !== 'object') continue;
+      const keys = Object.keys(row).filter(k => cols.includes(k));
+      if (!keys.length) continue;
+      try {
+        db.prepare(`INSERT OR REPLACE INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`)
+          .run(...keys.map(k => row[k]));
+        n++;
+      } catch (e) {}
+    }
+    result.tables[table] = n;
+  });
+
+  try { backup.backupNow(); } catch (e) {}
+  res.json({ ok: true, ...result });
 });
 
 // 错误处理

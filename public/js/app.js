@@ -6,7 +6,9 @@ const state = {
   user: safeParse(localStorage.getItem('xm_user')) || null,
   home: { topic: 'recommend', sort: 'latest', q: '', page: 1 },
   adminTab: 'stats',
+  devTab: 'shop',
   boards: [],
+  postPasswords: {},
 };
 const unlockedBoards = new Set(safeParse(localStorage.getItem('xm_boards')) || []);
 const AGE_KEY = 'xm_age_ok';
@@ -53,6 +55,10 @@ async function api(path, opts = {}) {
 function mediaUrl(p) {
   if (!p) return '/img/default-leaf.png';
   return String(p).startsWith('http') ? p : p;
+}
+function titleBadge(name, color) {
+  if (!name) return '';
+  return ' <span class="tag" style="background:' + esc(color || '#00B34F') + '">' + esc(name) + '</span>';
 }
 function ago(t) {
   if (!t) return '';
@@ -274,11 +280,15 @@ function postHTML(p, detail) {
       images.map(src => '<img src="' + esc(mediaUrl(src)) + '" alt="" loading="lazy" data-act="image" data-src="' + esc(mediaUrl(src)) + '">').join('') + '</div>'
     : '';
   const video = p.video
-    ? '<div class="video-box"><video src="' + esc(mediaUrl(p.video)) + '" controls playsinline preload="metadata"></video></div>'
+    ? '<div class="video-box"><video src="' + esc(mediaUrl(p.video)) + '#t=0.1" controls playsinline preload="metadata"></video></div>'
     : '';
   const boardName = (state.boards.find(b => b.key === p.topic) || {}).name || '社区';
   const liked = Number(p.liked) === 1 || p.liked === true;
-  const content = detail ? esc(p.content) : esc(String(p.content || '').slice(0, 220)) + (String(p.content || '').length > 220 ? '…' : '');
+  const locked = !!p.locked;
+  const content = locked ? '' : (detail ? esc(p.content) : esc(String(p.content || '').slice(0, 220)) + (String(p.content || '').length > 220 ? '…' : ''));
+  const lockBox = locked
+    ? '<div class="locked-box" data-act="openpost" data-id="' + p.id + '">🔒 该内容需要密码访问，点击输入密码</div>'
+    : '';
 
   return '<div class="card post" id="post-' + p.id + '">' +
     '<div class="pad">' +
@@ -287,16 +297,18 @@ function postHTML(p, detail) {
         '<div class="grow">' +
           '<div class="who" data-act="user" data-id="' + p.user_id + '">' + esc(p.username || '匿名用户') +
             ' <span class="sub">Lv.' + Math.max(1, Number(p.user_level || 1)) + '</span>' +
+            titleBadge(p.user_title, p.user_title_color) +
             (Number(p.user_developer) === 1 ? ' <span class="tag">开发者</span>' : '') +
             (p.user_role === 'admin' && Number(p.user_developer) !== 1 ? ' <span class="tag">管理员</span>' : '') +
           '</div>' +
           '<div class="time">' + ago(p.created_at) + ' · ' + esc(boardName) +
-            (Number(p.pinned) === 1 ? ' · <span class="green">置顶</span>' : '') + '</div>' +
+            (Number(p.pinned) === 1 ? ' · <span class="green">置顶</span>' : '') +
+            (locked ? ' · 🔒 密码访问' : '') + '</div>' +
         '</div>' +
       '</div>' +
       (p.title ? '<div class="title" data-act="openpost" data-id="' + p.id + '">' + esc(p.title) + '</div>' : '') +
-      '<div class="content" data-act="openpost" data-id="' + p.id + '">' + content + '</div>' +
-      media + video + pollHTML(p) +
+      (content ? '<div class="content" data-act="openpost" data-id="' + p.id + '">' + content + '</div>' : '') +
+      lockBox + media + video + pollHTML(p) +
       '<div class="actions">' +
         '<button class="act' + (liked ? ' on' : '') + '" data-act="like" data-id="' + p.id + '">' +
           (liked ? '♥' : '♡') + ' <span data-like-count="' + p.id + '">' + Number(p.likes_count || 0) + '</span></button>' +
@@ -365,7 +377,35 @@ async function renderPost(id) {
   if (!id) { location.hash = '#/'; return; }
   app.innerHTML = '<div class="page"><div class="card pad"><div class="empty">加载中…</div></div></div>';
   if (!state.boards.length) await loadBoards();
-  const p = await api('/api/posts/' + id);
+  const pw = state.postPasswords[id];
+  const p = await api('/api/posts/' + id + (pw ? '?post_password=' + encodeURIComponent(pw) : ''));
+
+  if (p.locked) {
+    app.innerHTML = '<div class="page">' +
+      '<div class="row between" style="margin-bottom:8px"><button class="btn small" data-act="back">‹ 返回</button><span></span><span></span></div>' +
+      postHTML(p, true) +
+      '<div class="card pad"><div class="section-title" style="margin-top:0">🔒 密码访问</div>' +
+        '<div class="muted" style="margin-bottom:10px">该帖子已设置访问密码，输入正确密码后查看内容</div>' +
+        '<div class="chat-input" style="position:static;padding:0;border:0">' +
+          '<input type="password" id="post-pwd" placeholder="输入访问密码">' +
+          '<button class="btn primary" id="post-unlock">解锁</button>' +
+        '</div>' +
+      '</div></div>';
+    const doUnlock = async () => {
+      const val = document.getElementById('post-pwd').value.trim();
+      if (!val) return;
+      try {
+        await api('/api/posts/' + id + '/unlock', { method: 'POST', body: { password: val } });
+        state.postPasswords[id] = val;
+        toast('解锁成功');
+        renderPost(id);
+      } catch (e) { toast(e.message); }
+    };
+    document.getElementById('post-unlock').onclick = doUnlock;
+    document.getElementById('post-pwd').addEventListener('keydown', e => { if (e.key === 'Enter') doUnlock(); });
+    return;
+  }
+
   const comments = p.comments || [];
   const commentHTML = comments.length
     ? comments.map(c =>
@@ -417,6 +457,7 @@ function renderPublish() {
       '<button class="btn small" id="pub-poll-btn">发起投票</button>' +
     '</div>' +
     '<div id="pub-files" class="sub" style="margin-bottom:8px"></div>' +
+    '<label class="field"><span>访问密码（可选，设置后需密码查看内容）</span><input id="pub-password" type="text" maxlength="50" placeholder="留空则公开"></label>' +
     '<div id="pub-poll-box" class="card pad" style="display:none;margin:0 0 12px;box-shadow:none;border:1px solid var(--line)">' +
       '<div class="sub" style="margin-bottom:6px">投票选项（2-10 个）</div><div id="pub-opts"></div>' +
       '<button class="btn small" id="pub-add-opt" style="margin-top:6px">+ 添加选项</button>' +
@@ -476,6 +517,7 @@ function renderPublish() {
     const btn = e.target;
     const title = document.getElementById('pub-title').value.trim();
     const content = document.getElementById('pub-content').value.trim();
+    const accessPassword = document.getElementById('pub-password').value.trim();
     const options = pollMode ? Array.from(optsBox.querySelectorAll('input')).map(i => i.value.trim()).filter(Boolean) : [];
     if (pollMode && options.length < 2) { toast('投票至少需要 2 个选项'); return; }
     if (!pollMode && !content) { toast('说点什么再发布吧'); return; }
@@ -484,6 +526,7 @@ function renderPublish() {
     fd.append('title', title);
     fd.append('content', content);
     fd.append('topic', topic);
+    if (accessPassword) fd.append('access_password', accessPassword);
     if (pollMode) {
       fd.append('type', 'poll');
       fd.append('question', title);
@@ -682,6 +725,7 @@ async function renderMe() {
       '<div class="row"><img class="avatar" src="' + esc(mediaUrl(u.avatar)) + '" alt="">' +
         '<div class="grow"><h2>' + esc(u.username) + '</h2>' +
         '<div style="font-size:12px;opacity:.9">Lv.' + Math.max(1, Number(u.level || 1)) + ' · ' + Number(u.points || 0) + ' 积分' +
+        (u.title ? ' · ' + esc(u.title) : '') +
         (Number(u.is_developer) === 1 ? ' · 开发者' : u.role === 'admin' ? ' · 管理员' : '') + '</div></div>' +
       '</div>' +
       '<div class="stats" id="me-stats"><div><b>-</b><span>帖子</span></div><div><b>-</b><span>获赞</span></div><div><b>-</b><span>粉丝</span></div><div><b>-</b><span>关注</span></div></div>' +
@@ -695,7 +739,7 @@ async function renderMe() {
       '<div class="menu-item" data-act="bio">✏️ 修改签名<span class="arrow">›</span></div>' +
       '<div class="menu-item" data-act="pwd">🔒 修改密码<span class="arrow">›</span></div>' +
       (isAdmin() ? '<div class="menu-item" data-act="admin">🛠️ 管理后台<span class="arrow">›</span></div>' : '') +
-      (isDev() ? '<div class="menu-item" data-act="dev">⚙️ 开发者设置（签到/商城）<span class="arrow">›</span></div>' : '') +
+      (isDev() ? '<div class="menu-item" data-act="dev">⚙️ 开发者设置（头衔/等级/导入导出）<span class="arrow">›</span></div>' : '') +
       '<a class="menu-item" href="/download/xiaomu-community.apk" download>📱 下载安卓 App<span class="arrow">›</span></a>' +
       '<div class="menu-item danger" data-act="logout">退出登录</div>' +
     '</div></div>';
@@ -733,6 +777,7 @@ async function renderUserProfile(id) {
       '<div class="row"><img class="avatar" src="' + esc(mediaUrl(p.avatar)) + '" alt="">' +
         '<div class="grow"><h2>' + esc(p.username) + '</h2>' +
         '<div style="font-size:12px;opacity:.9">Lv.' + Math.max(1, Number(p.level || 1)) + ' · ' + Number(p.points || 0) + ' 积分' +
+        (p.title ? ' · ' + esc(p.title) : '') +
         (Number(p.is_developer) === 1 ? ' · 开发者' : p.role === 'admin' ? ' · 管理员' : '') + '</div>' +
         '<div style="font-size:12px;opacity:.85;margin-top:3px">' + esc(p.bio || '这个人很懒，什么都没留下') + '</div></div>' +
       '</div>' +
@@ -871,42 +916,135 @@ async function renderAdminBody() {
 }
 
 /* ===================== 开发者设置 ===================== */
+async function downloadFile(path, filename) {
+  const res = await fetch(path, { headers: state.token ? { Authorization: 'Bearer ' + state.token } : {} });
+  if (!res.ok) { let d = {}; try { d = await res.json(); } catch (e) {} toast(d.error || '导出失败'); return; }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  toast('已开始下载');
+}
 async function renderDev() {
   if (!isDev()) { toast('需要开发者权限'); location.hash = '#/me'; return; }
+  if (!state.devTab) state.devTab = 'shop';
   app.innerHTML = '<div class="page"><div class="card pad"><div class="empty">加载中…</div></div></div>';
-  const data = await api('/api/admin/rewards');
+  const [data, titles, users] = await Promise.all([
+    api('/api/admin/rewards').catch(() => ({})),
+    api('/api/titles').catch(() => []),
+    api('/api/dev/users').catch(() => []),
+  ]);
   const rewards = data.rewards || [];
   const redemptions = data.redemptions || [];
+  const tab = state.devTab;
+  const tabs = [['shop', '签到 / 商城'], ['titles', '头衔'], ['users', '用户等级'], ['data', '导入导出']];
+
+  let body = '';
+  if (tab === 'shop') {
+    body =
+      '<div class="card pad">' +
+        '<div class="row between"><div><b>每日签到积分</b><div class="muted">修改后所有用户签到按新值发放</div></div>' +
+        '<div class="row" style="gap:6px"><input type="number" id="ci-points" style="width:90px" value="' + Number(data.checkin_points || 10) + '">' +
+        '<button class="btn small primary" id="ci-save">保存</button></div></div>' +
+      '</div>' +
+      '<div class="row between" style="margin:10px 0 8px"><div class="section-title" style="margin:0">商城商品</div>' +
+        '<button class="btn small primary" data-act="newreward">+ 新增商品</button></div>' +
+      '<div class="card">' + (rewards.length ? rewards.map(r =>
+        '<div class="reward"><div class="icon">' + esc(r.icon || '礼') + '</div>' +
+        '<div class="grow"><div style="font-weight:600">' + esc(r.title) + (Number(r.enabled) ? '' : ' · 已下架') + '</div>' +
+        '<div class="muted">' + esc(r.description || '') + '</div>' +
+        '<div class="green" style="font-size:12px;margin-top:2px">' + r.cost + ' 积分 · ' + (Number(r.stock) < 0 ? '不限库存' : '库存 ' + r.stock) + '</div></div>' +
+        '<div class="ops"><button class="btn small" data-act="editreward" data-id="' + r.id + '">编辑</button>' +
+        '<button class="btn small danger" data-act="delreward" data-id="' + r.id + '" data-title="' + esc(r.title) + '">删除</button></div></div>').join('')
+        : '<div class="empty">暂无商品</div>') + '</div>' +
+      '<div class="section-title">最近兑换</div>' +
+      '<div class="card pad">' + (redemptions.length ? redemptions.map(r =>
+        '<div class="sub" style="padding:5px 0">· ' + esc(r.username || '用户') + ' 兑换了「' + esc(r.reward_title) + '」-' + r.cost + ' 积分 · ' + timeText(r.created_at) + '</div>').join('')
+        : '<div class="empty">暂无兑换记录</div>') + '</div>';
+  } else if (tab === 'titles') {
+    body =
+      '<div class="row between" style="margin-bottom:8px"><div class="section-title" style="margin:0">头衔管理</div>' +
+        '<button class="btn small primary" data-act="newtitle">+ 新增头衔</button></div>' +
+      '<div class="card">' + (titles.length ? titles.map(t =>
+        '<div class="list-item"><div class="grow"><div style="font-weight:600"><span class="tag" style="background:' + esc(t.color || '#00B34F') + '">' + esc(t.name) + '</span></div>' +
+        '<div class="muted">ID ' + t.id + ' · ' + esc(t.color || '') + '</div></div>' +
+        '<div class="ops"><button class="btn small" data-act="edittitle" data-id="' + t.id + '" data-name="' + esc(t.name) + '" data-color="' + esc(t.color || '') + '">编辑</button>' +
+        '<button class="btn small danger" data-act="deltitle" data-id="' + t.id + '" data-name="' + esc(t.name) + '">删除</button></div></div>').join('')
+        : '<div class="empty">还没有头衔，点右上角新增</div>') + '</div>' +
+      '<div class="muted" style="margin-top:8px">头衔可分配给用户，在「用户等级」中设置。</div>';
+  } else if (tab === 'users') {
+    body =
+      '<div class="section-title" style="margin-top:0">用户等级 / 头衔</div>' +
+      '<div class="card">' + (users.length ? users.map(u =>
+        '<div class="list-item" style="align-items:flex-start;flex-wrap:wrap">' +
+          '<img src="' + esc(mediaUrl(u.avatar || '/img/default-leaf.png')) + '" alt="">' +
+          '<div class="grow"><div class="who">' + esc(u.username) + titleBadge(u.title, u.title_color) +
+            (Number(u.is_developer) === 1 ? ' <span class="tag">开发者</span>' : '') + '</div>' +
+            '<div class="muted">ID ' + u.id + ' · 当前 Lv.' + Number(u.level || 1) + ' · ' + Number(u.points || 0) + ' 积分</div>' +
+            '<div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">' +
+              '<label class="sub">等级 <input type="number" min="1" max="99" class="dev-level" data-id="' + u.id + '" value="' + Number(u.level || 1) + '" style="width:64px"></label>' +
+              '<label class="sub">积分 <input type="number" min="0" class="dev-points" data-id="' + u.id + '" value="' + Number(u.points || 0) + '" style="width:84px"></label>' +
+              '<label class="sub">头衔 <select class="dev-title" data-id="' + u.id + '">' +
+                '<option value="0">无</option>' +
+                titles.map(t => '<option value="' + t.id + '"' + (Number(u.title_id) === Number(t.id) ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('') +
+              '</select></label>' +
+              '<button class="btn small primary" data-act="saveuser" data-id="' + u.id + '">保存</button>' +
+            '</div></div></div>').join('')
+        : '<div class="empty">暂无用户</div>') + '</div>';
+  } else {
+    body =
+      '<div class="card pad">' +
+        '<div class="section-title" style="margin-top:0">导出账号数据</div>' +
+        '<div class="muted" style="margin-bottom:10px">JSON 含全部账号（密码哈希）、帖子、评论、板块、好友、私信、签到、积分、商城等；CSV 仅账号列表。</div>' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap">' +
+          '<button class="btn small primary" data-act="exportjson">导出全部数据（JSON）</button>' +
+          '<button class="btn small" data-act="exportcsv">导出账号（CSV）</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="card pad" style="margin-top:10px">' +
+        '<div class="section-title" style="margin-top:0">导入账号数据</div>' +
+        '<div class="muted" style="margin-bottom:10px">选择之前导出的 JSON 文件；按用户名/ID 合并，不会删除现有账号。密码支持明文或 bcrypt 哈希。</div>' +
+        '<label class="btn small">选择 JSON 文件<input id="dev-import-file" type="file" accept=".json,application/json" hidden></label>' +
+        '<div id="dev-import-result" class="sub" style="margin-top:10px"></div>' +
+      '</div>';
+  }
+
   app.innerHTML = '<div class="page">' +
     '<div class="row between" style="margin-bottom:8px"><button class="btn small" data-act="back">‹ 返回</button><b>开发者设置</b><span></span></div>' +
-    '<div class="card pad">' +
-      '<div class="row between"><div><b>每日签到积分</b><div class="muted">修改后所有用户签到按新值发放</div></div>' +
-      '<div class="row" style="gap:6px"><input type="number" id="ci-points" style="width:90px" value="' + Number(data.checkin_points || 10) + '">' +
-      '<button class="btn small primary" id="ci-save">保存</button></div></div>' +
-    '</div>' +
-    '<div class="row between" style="margin:10px 0 8px"><div class="section-title" style="margin:0">商城商品</div>' +
-      '<button class="btn small primary" data-act="newreward">+ 新增商品</button></div>' +
-    '<div class="card">' + (rewards.length ? rewards.map(r =>
-      '<div class="reward"><div class="icon">' + esc(r.icon || '礼') + '</div>' +
-      '<div class="grow"><div style="font-weight:600">' + esc(r.title) + (Number(r.enabled) ? '' : ' · 已下架') + '</div>' +
-      '<div class="muted">' + esc(r.description || '') + '</div>' +
-      '<div class="green" style="font-size:12px;margin-top:2px">' + r.cost + ' 积分 · ' + (Number(r.stock) < 0 ? '不限库存' : '库存 ' + r.stock) + '</div></div>' +
-      '<div class="ops"><button class="btn small" data-act="editreward" data-id="' + r.id + '">编辑</button>' +
-      '<button class="btn small danger" data-act="delreward" data-id="' + r.id + '" data-title="' + esc(r.title) + '">删除</button></div></div>').join('')
-      : '<div class="empty">暂无商品</div>') + '</div>' +
-    '<div class="section-title">最近兑换</div>' +
-    '<div class="card pad">' + (redemptions.length ? redemptions.map(r =>
-      '<div class="sub" style="padding:5px 0">· ' + esc(r.username || '用户') + ' 兑换了「' + esc(r.reward_title) + '」-' + r.cost + ' 积分 · ' + timeText(r.created_at) + '</div>').join('')
-      : '<div class="empty">暂无兑换记录</div>') + '</div>' +
-    '</div>';
+    '<div class="chips" style="margin-bottom:10px">' + tabs.map(t =>
+      '<div class="chip' + (tab === t[0] ? ' on' : '') + '" data-act="devtab" data-tab="' + t[0] + '">' + t[1] + '</div>').join('') + '</div>' +
+    body + '</div>';
 
-  document.getElementById('ci-save').onclick = async () => {
-    const points = Number(document.getElementById('ci-points').value);
-    try {
-      await api('/api/admin/settings/checkin', { method: 'PUT', body: { points } });
-      toast('签到积分已更新');
-    } catch (e) { toast(e.message); }
-  };
+  if (tab === 'shop') {
+    document.getElementById('ci-save').onclick = async () => {
+      const points = Number(document.getElementById('ci-points').value);
+      try {
+        await api('/api/admin/settings/checkin', { method: 'PUT', body: { points } });
+        toast('签到积分已更新');
+      } catch (e) { toast(e.message); }
+    };
+  }
+  if (tab === 'data') {
+    const inp = document.getElementById('dev-import-file');
+    inp.onchange = async () => {
+      const file = inp.files[0];
+      if (!file) return;
+      const box = document.getElementById('dev-import-result');
+      box.textContent = '导入中…';
+      try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const r = await api('/api/dev/import', { method: 'POST', body: json });
+        box.innerHTML = '导入完成：新增账号 ' + r.users.inserted + '，更新 ' + r.users.updated + '，跳过 ' + r.users.skipped +
+          '<br>其他数据：' + Object.keys(r.tables || {}).map(k => k + ' ' + r.tables[k]).join('、');
+        toast('导入完成');
+      } catch (e) {
+        box.textContent = '导入失败：' + e.message;
+      }
+    };
+  }
 }
 
 /* ===================== 通用事件 ===================== */
@@ -1002,6 +1140,50 @@ document.addEventListener('click', async e => {
   if (act === 'mylikes') { location.hash = '#/'; state.home.likedBy = myId(); return; }
   if (act === 'admin') { location.hash = '#/admin'; return; }
   if (act === 'dev') { location.hash = '#/dev'; return; }
+  if (act === 'devtab') { state.devTab = el.dataset.tab; renderDev(); return; }
+  if (act === 'newtitle' || act === 'edittitle') {
+    const isEdit = act === 'edittitle';
+    const r = await openModal(isEdit ? '编辑头衔' : '新增头衔',
+      '<label class="field"><span>头衔名称</span><input id="title-name" maxlength="20" value="' + (isEdit ? esc(el.dataset.name) : '') + '"></label>' +
+      '<label class="field"><span>颜色（如 #00B34F）</span><input id="title-color" value="' + (isEdit ? esc(el.dataset.color || '#00B34F') : '#00B34F') + '"></label>');
+    if (!r.ok) return;
+    const name = r.body.querySelector('#title-name').value.trim();
+    const color = r.body.querySelector('#title-color').value.trim() || '#00B34F';
+    if (!name) { toast('头衔名称必填'); return; }
+    try {
+      if (isEdit) await api('/api/dev/titles/' + id, { method: 'PUT', body: { name, color } });
+      else await api('/api/dev/titles', { method: 'POST', body: { name, color } });
+      toast(isEdit ? '头衔已更新' : '头衔已添加');
+      renderDev();
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  if (act === 'deltitle') {
+    const ok = await confirmDialog('删除头衔', '确定删除「' + el.dataset.name + '」？已分配该头衔的用户将变为无头衔。', '删除');
+    if (!ok) return;
+    try {
+      await api('/api/dev/titles/' + id, { method: 'DELETE' });
+      toast('已删除');
+      renderDev();
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  if (act === 'saveuser') {
+    const lv = document.querySelector('.dev-level[data-id="' + id + '"]');
+    const pts = document.querySelector('.dev-points[data-id="' + id + '"]');
+    const tid = document.querySelector('.dev-title[data-id="' + id + '"]');
+    try {
+      await api('/api/dev/users/' + id, {
+        method: 'POST',
+        body: { level: Number(lv.value), points: Number(pts.value), title_id: Number(tid.value) || null }
+      });
+      toast('已保存');
+      renderDev();
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  if (act === 'exportjson') { downloadFile('/api/dev/export', 'xiaomu-accounts.json'); return; }
+  if (act === 'exportcsv') { downloadFile('/api/dev/export.csv', 'xiaomu-users.csv'); return; }
   if (act === 'logout') {
     const ok = await confirmDialog('退出登录', '确定要退出当前账号吗？', '退出');
     if (ok) logout();

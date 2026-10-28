@@ -36,6 +36,29 @@ public class Api {
         void fail(String msg);
     }
 
+    public interface BytesCb {
+        void ok(byte[] data);
+        void fail(String msg);
+    }
+
+    public static void getBytes(String path, BytesCb cb) {
+        exec.execute(() -> {
+            try (Response res = client.newCall(req(path).get().build()).execute()) {
+                byte[] data = res.body() != null ? res.body().bytes() : new byte[0];
+                if (!res.isSuccessful()) {
+                    String msg = "请求失败(" + res.code() + ")";
+                    try { msg = new JSONObject(new String(data, "UTF-8")).optString("error", msg); } catch (Exception ignored) {}
+                    final String m = msg;
+                    main.post(() -> cb.fail(m));
+                    return;
+                }
+                main.post(() -> cb.ok(data));
+            } catch (IOException e) {
+                main.post(() -> cb.fail("网络连接失败，请检查网络"));
+            }
+        });
+    }
+
     public static String mediaUrl(String path) {
         if (path == null || path.isEmpty()) return BASE + "/img/default-leaf.png";
         if (path.startsWith("http")) return path;

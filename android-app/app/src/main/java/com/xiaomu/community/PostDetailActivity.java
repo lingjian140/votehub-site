@@ -5,6 +5,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -13,6 +14,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.RequestOptions;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import org.json.JSONArray;
@@ -29,6 +31,7 @@ public class PostDetailActivity extends AppCompatActivity {
     private TextView commentTitle, noComment, likeBtn, followBtn, views;
     private EditText input;
     private boolean following = false;
+    private String postPassword = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,7 +79,9 @@ public class PostDetailActivity extends AppCompatActivity {
     }
 
     private void load() {
-        Api.get("/api/posts/" + postId, new Api.Cb() {
+        String url = "/api/posts/" + postId;
+        if (!postPassword.isEmpty()) url += "?post_password=" + android.net.Uri.encode(postPassword);
+        Api.get(url, new Api.Cb() {
             @Override public void ok(JSONObject o) {
                 post = o;
                 bind();
@@ -91,6 +96,17 @@ public class PostDetailActivity extends AppCompatActivity {
     private void bind() {
         ((TextView) findViewById(R.id.p_username)).setText(
                 post.optString("username") + " · Lv." + Math.max(1, post.optInt("user_level", 1)));
+        TextView badge = findViewById(R.id.p_title_badge);
+        String userTitle = post.optString("user_title", "");
+        if (userTitle.isEmpty()) {
+            badge.setVisibility(View.GONE);
+        } else {
+            badge.setVisibility(View.VISIBLE);
+            badge.setText(userTitle);
+            try {
+                badge.setTextColor(android.graphics.Color.parseColor(post.optString("user_title_color", "#00B34F")));
+            } catch (Exception ignored) {}
+        }
         ((TextView) findViewById(R.id.p_time)).setText(TimeUtil.ago(post.optString("created_at")));
         Glide.with(this).load(Api.mediaUrl(post.optString("avatar"))).circleCrop()
                 .into((ImageView) findViewById(R.id.p_avatar));
@@ -101,21 +117,39 @@ public class PostDetailActivity extends AppCompatActivity {
         tvTitle.setText(title);
         ((TextView) findViewById(R.id.p_content)).setText(post.optString("content"));
 
-        PostAdapter.bindImages(findViewById(R.id.p_images), post.optJSONArray("images"), this);
+        boolean locked = post.optBoolean("locked", false);
+        TextView lockedBox = findViewById(R.id.p_locked);
+        lockedBox.setVisibility(locked ? View.VISIBLE : View.GONE);
+        lockedBox.setOnClickListener(v -> askPassword());
 
-        TextView video = findViewById(R.id.p_video);
-        String videoPath = post.optString("video", "");
-        video.setVisibility(videoPath.isEmpty() ? View.GONE : View.VISIBLE);
-        video.setOnClickListener(v -> {
-            try {
-                Intent it = new Intent(Intent.ACTION_VIEW);
-                it.setDataAndType(android.net.Uri.parse(Api.mediaUrl(videoPath)), "video/*");
-                it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivity(it);
-            } catch (Exception ignored) { toast("无法播放该视频"); }
-        });
+        if (locked) {
+            findViewById(R.id.p_images).setVisibility(View.GONE);
+            findViewById(R.id.p_video_box).setVisibility(View.GONE);
+            findViewById(R.id.p_poll).setVisibility(View.GONE);
+        } else {
+            PostAdapter.bindImages(findViewById(R.id.p_images), post.optJSONArray("images"), this);
 
-        bindPoll();
+            String videoPath = post.optString("video", "");
+            FrameLayout videoBox = findViewById(R.id.p_video_box);
+            if (videoPath.isEmpty()) {
+                videoBox.setVisibility(View.GONE);
+            } else {
+                videoBox.setVisibility(View.VISIBLE);
+                Glide.with(this).load(Api.mediaUrl(videoPath))
+                        .apply(RequestOptions.frameOf(0))
+                        .into((ImageView) findViewById(R.id.p_video_thumb));
+                videoBox.setOnClickListener(v -> {
+                    try {
+                        Intent it = new Intent(Intent.ACTION_VIEW);
+                        it.setDataAndType(android.net.Uri.parse(Api.mediaUrl(videoPath)), "video/*");
+                        it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(it);
+                    } catch (Exception ignored) { toast("无法播放该视频"); }
+                });
+            }
+
+            bindPoll();
+        }
 
         ((TextView) findViewById(R.id.p_board)).setText(boards.getOrDefault(post.optString("topic"), "社区"));
         views.setText("浏览 " + post.optInt("views_count", 0));
@@ -129,6 +163,28 @@ public class PostDetailActivity extends AppCompatActivity {
         JSONArray cs = post.optJSONArray("comments");
         noComment.setVisibility(cs == null || cs.length() == 0 ? View.VISIBLE : View.GONE);
         if (cs != null) for (int i = 0; i < cs.length(); i++) addCommentView(cs.optJSONObject(i), false);
+    }
+
+    private void askPassword() {
+        EditText et = new EditText(this);
+        et.setHint("请输入访问密码");
+        et.setText(postPassword);
+        new MaterialAlertDialogBuilder(this).setTitle("密码访问")
+                .setView(et)
+                .setPositiveButton("确定", (d, w) -> {
+                    String pwd = et.getText().toString().trim();
+                    if (pwd.isEmpty()) return;
+                    JSONObject body = new JSONObject();
+                    try { body.put("password", pwd); } catch (Exception ignored) {}
+                    Api.post("/api/posts/" + postId + "/unlock", body, new Api.Cb() {
+                        @Override public void ok(JSONObject o) {
+                            postPassword = pwd;
+                            load();
+                        }
+                        @Override public void fail(String msg) { toast(msg); }
+                    });
+                })
+                .setNegativeButton("取消", null).show();
     }
 
     private void bindPoll() {

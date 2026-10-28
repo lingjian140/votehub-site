@@ -178,6 +178,8 @@ try { db.exec("ALTER TABLE posts ADD COLUMN video TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE boards ADD COLUMN age_restricted INTEGER DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE boards ADD COLUMN password TEXT"); } catch (e) {}
 try { db.exec("ALTER TABLE boards ADD COLUMN require_password INTEGER DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN title_id INTEGER"); } catch (e) {}
+try { db.exec("ALTER TABLE posts ADD COLUMN access_password TEXT"); } catch (e) {}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS friendships (
@@ -265,6 +267,13 @@ CREATE TABLE IF NOT EXISTS redemptions (
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS titles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT UNIQUE NOT NULL,
+  color TEXT DEFAULT '#00B34F',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 `);
 
