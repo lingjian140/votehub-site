@@ -41,10 +41,10 @@ const storage = multer.diskStorage({
   }
 });
 const imageFilter = (req, file, cb) => {
-  if (/^image\/(png|jpeg|jpg|gif|webp)$/.test(file.mimetype)) cb(null, true);
+  if (/^image\/(png|jpeg|jpg|gif|webp|heic|heif)$/.test(file.mimetype)) cb(null, true);
   else cb(new Error('只允许图片文件'));
 };
-const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 }, fileFilter: imageFilter });
+const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: imageFilter });
 
 // 帖子图片上传（最多 9 张，单张 5MB）
 const postStorage = multer.diskStorage({

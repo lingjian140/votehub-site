@@ -71,9 +71,18 @@ public class Api {
         MultipartBody.Builder b = new MultipartBody.Builder().setType(MultipartBody.FORM);
         if (fields != null) for (Map.Entry<String, String> e : fields.entrySet()) b.addFormDataPart(e.getKey(), e.getValue());
         if (images != null) for (File f : images) {
-            b.addFormDataPart(fileField, f.getName(), RequestBody.create(f, MediaType.parse("image/*")));
+            b.addFormDataPart(fileField, f.getName(), RequestBody.create(f, mimeOf(f)));
         }
         enqueue(req(path).post(b.build()).build(), cb);
+    }
+
+    private static MediaType mimeOf(File f) {
+        String n = f.getName().toLowerCase();
+        if (n.endsWith(".png")) return MediaType.parse("image/png");
+        if (n.endsWith(".gif")) return MediaType.parse("image/gif");
+        if (n.endsWith(".webp")) return MediaType.parse("image/webp");
+        if (n.endsWith(".heic") || n.endsWith(".heif")) return MediaType.parse("image/heic");
+        return MediaType.parse("image/jpeg");
     }
 
     private static void enqueue(Request request, Cb cb) {

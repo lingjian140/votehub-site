@@ -30,6 +30,14 @@
             android:textColor="@color/text"
             android:textSize="16sp"
             android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/btn_add"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:padding="2dp"
+            android:src="@drawable/ic_add"
+            android:visibility="gone" />
     </LinearLayout>
 
     <com.google.android.material.tabs.TabLayout

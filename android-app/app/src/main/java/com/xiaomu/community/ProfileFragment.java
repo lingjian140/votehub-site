@@ -144,7 +144,13 @@ public class ProfileFragment extends Fragment {
         try {
             InputStream in = getActivity().getContentResolver().openInputStream(uri);
             if (in == null) return null;
-            File f = new File(getActivity().getCacheDir(), "avatar_" + System.currentTimeMillis() + ".jpg");
+            String mime = getActivity().getContentResolver().getType(uri);
+            String ext = ".jpg";
+            if ("image/png".equals(mime)) ext = ".png";
+            else if ("image/gif".equals(mime)) ext = ".gif";
+            else if ("image/webp".equals(mime)) ext = ".webp";
+            else if ("image/heic".equals(mime) || "image/heif".equals(mime)) ext = ".heic";
+            File f = new File(getActivity().getCacheDir(), "avatar_" + System.currentTimeMillis() + ext);
             FileOutputStream out = new FileOutputStream(f);
             byte[] buf = new byte[8192];
             int len;

@@ -48,6 +48,7 @@ public class AdminActivity extends AppCompatActivity {
         swipe = findViewById(R.id.swipe);
         empty = findViewById(R.id.empty);
         fab = findViewById(R.id.fab);
+        findViewById(R.id.btn_add).setOnClickListener(v -> showBoardDialog(null));
 
         for (String name : TAB_NAMES) tabs.addTab(tabs.newTab().setText(name));
         tabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
@@ -89,6 +90,7 @@ public class AdminActivity extends AppCompatActivity {
                 : index == 3 ? AdminAdapter.MODE_POST
                 : AdminAdapter.MODE_REPORT);
         fab.setVisibility(index == 2 ? View.VISIBLE : View.GONE);
+        findViewById(R.id.btn_add).setVisibility(index == 2 ? View.VISIBLE : View.GONE);
         load();
     }
 
