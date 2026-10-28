@@ -12,3 +12,4 @@ android-app/build/
 android-app/app/build/
 android-app/local.properties
 *.apk
+!public/download/xiaomu-community.apk
