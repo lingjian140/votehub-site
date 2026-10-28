@@ -24,9 +24,9 @@ public class Api {
     public static final String BASE = "https://votehub-1644.onrender.com";
     private static final MediaType JSON_TYPE = MediaType.parse("application/json; charset=utf-8");
     private static final OkHttpClient client = new OkHttpClient.Builder()
-            .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(40, java.util.concurrent.TimeUnit.SECONDS)
-            .writeTimeout(40, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
             .build();
     private static final ExecutorService exec = Executors.newFixedThreadPool(4);
     private static final Handler main = new Handler(Looper.getMainLooper());
@@ -37,7 +37,7 @@ public class Api {
     }
 
     public static String mediaUrl(String path) {
-        if (path == null || path.isEmpty()) return BASE + "/img/default-duck.svg";
+        if (path == null || path.isEmpty()) return BASE + "/img/default-duck.png";
         if (path.startsWith("http")) return path;
         return BASE + path;
     }

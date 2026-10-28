@@ -28,7 +28,7 @@ public class Session {
 
     public static int userId() { return user().optInt("id", 0); }
     public static String username() { return user().optString("username", ""); }
-    public static String avatar() { return user().optString("avatar", "/img/default-duck.svg"); }
+    public static String avatar() { return user().optString("avatar", "/img/default-duck.png"); }
     public static String role() { return user().optString("role", "user"); }
     public static boolean isAdmin() { return "admin".equals(role()); }
     public static boolean logged() { return !token().isEmpty(); }

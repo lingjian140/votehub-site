@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE NOT NULL,
   password TEXT NOT NULL,
-  avatar TEXT DEFAULT '/img/default-duck.svg',
+  avatar TEXT DEFAULT '/img/default-duck.png',
   role TEXT DEFAULT 'user',
   status TEXT DEFAULT 'active',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -168,6 +168,9 @@ try { db.exec("ALTER TABLE users ADD COLUMN can_post INTEGER DEFAULT 1"); } catc
 try { db.exec("ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''"); } catch (e) {}
 try { db.exec("ALTER TABLE posts ADD COLUMN pinned INTEGER DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE posts ADD COLUMN status TEXT DEFAULT 'published'"); } catch (e) {}
+
+// 默认头像改为 PNG（Android 端 Glide 不支持 SVG）
+try { db.prepare("UPDATE users SET avatar = '/img/default-duck.png' WHERE avatar = '/img/default-duck.svg'").run(); } catch (e) {}
 
 // 种子板块
 const seedBoards = [

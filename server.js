@@ -96,7 +96,7 @@ app.post('/api/register', (req, res) => {
     const info = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)')
       .run(username, bcrypt.hashSync(password, 10));
     const token = jwt.sign({ id: info.lastInsertRowid, username, role: 'user' }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: info.lastInsertRowid, username, role: 'user', avatar: '/img/default-duck.svg' } });
+    res.json({ token, user: { id: info.lastInsertRowid, username, role: 'user', avatar: '/img/default-duck.png' } });
   } catch (e) {
     if (String(e).includes('UNIQUE')) return res.status(400).json({ error: '用户名已存在' });
     res.status(500).json({ error: '注册失败' });
@@ -131,8 +131,8 @@ app.post('/api/avatar', requireAuth, upload.single('avatar'), (req, res) => {
 });
 
 app.post('/api/reset-avatar', requireAuth, (req, res) => {
-  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run('/img/default-duck.svg', req.user.id);
-  res.json({ avatar: '/img/default-duck.svg' });
+  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run('/img/default-duck.png', req.user.id);
+  res.json({ avatar: '/img/default-duck.png' });
 });
 
 // ===== 投票 =====

@@ -70,10 +70,7 @@ public class LoginActivity extends AppCompatActivity {
             });
         });
 
-        findViewById(R.id.btn_guest).setOnClickListener(v -> {
-            startActivity(new Intent(this, MainActivity.class));
-            finish();
-        });
+        findViewById(R.id.btn_guest).setVisibility(View.GONE);
     }
 
     private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
