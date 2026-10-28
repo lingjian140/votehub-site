@@ -133,6 +133,26 @@
                     android:orientation="vertical" />
 
                 <TextView
+                    android:id="@+id/p_video"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="@drawable/bg_search"
+                    android:gravity="center"
+                    android:padding="28dp"
+                    android:text="▶ 点击播放视频"
+                    android:textColor="@color/green"
+                    android:textSize="14sp"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/p_poll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical" />
+
+                <TextView
                     android:id="@+id/p_board"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

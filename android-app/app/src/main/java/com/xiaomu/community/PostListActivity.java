@@ -53,6 +53,19 @@ public class PostListActivity extends AppCompatActivity {
             }
             @Override public void onLike(JSONObject p, int pos) { like(p, pos); }
             @Override public void onShare(JSONObject p) { share(p); }
+            @Override public void onUser(JSONObject p) {
+                Intent i = new Intent(PostListActivity.this, UserProfileActivity.class);
+                i.putExtra("id", p.optInt("user_id"));
+                startActivity(i);
+            }
+            @Override public void onVote(JSONObject p, int optionId) {
+                JSONObject body = new JSONObject();
+                try { body.put("option_id", optionId); } catch (Exception ignored) {}
+                Api.post("/api/posts/" + p.optInt("id") + "/vote", body, new Api.Cb() {
+                    @Override public void ok(JSONObject o) { toast("投票成功"); load(true); }
+                    @Override public void fail(String msg) { toast(msg); }
+                });
+            }
         });
         adapter.setBoards(boardNames);
 

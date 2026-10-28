@@ -169,6 +169,105 @@ try { db.exec("ALTER TABLE users ADD COLUMN bio TEXT DEFAULT ''"); } catch (e) {
 try { db.exec("ALTER TABLE posts ADD COLUMN pinned INTEGER DEFAULT 0"); } catch (e) {}
 try { db.exec("ALTER TABLE posts ADD COLUMN status TEXT DEFAULT 'published'"); } catch (e) {}
 
+// 等级 / 开发者 / 投票 / 视频 / 板块门禁
+try { db.exec("ALTER TABLE users ADD COLUMN points INTEGER DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN level INTEGER DEFAULT 1"); } catch (e) {}
+try { db.exec("ALTER TABLE users ADD COLUMN is_developer INTEGER DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE posts ADD COLUMN type TEXT DEFAULT 'post'"); } catch (e) {}
+try { db.exec("ALTER TABLE posts ADD COLUMN video TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE boards ADD COLUMN age_restricted INTEGER DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE boards ADD COLUMN password TEXT"); } catch (e) {}
+try { db.exec("ALTER TABLE boards ADD COLUMN require_password INTEGER DEFAULT 0"); } catch (e) {}
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS friendships (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  requester_id INTEGER NOT NULL,
+  addressee_id INTEGER NOT NULL,
+  status TEXT DEFAULT 'pending',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(requester_id, addressee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_friendships_addressee ON friendships(addressee_id, status);
+
+CREATE TABLE IF NOT EXISTS private_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_id INTEGER NOT NULL,
+  to_id INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  read_at TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_pm_pair ON private_messages(from_id, to_id, id DESC);
+
+CREATE TABLE IF NOT EXISTS post_polls (
+  post_id INTEGER PRIMARY KEY,
+  question TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS post_poll_options (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  sort_order INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS post_poll_votes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  post_id INTEGER NOT NULL,
+  option_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(post_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS checkins (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  points INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, date)
+);
+CREATE INDEX IF NOT EXISTS idx_checkins_user ON checkins(user_id, date DESC);
+
+CREATE TABLE IF NOT EXISTS points_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  amount INTEGER NOT NULL,
+  reason TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS rewards (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  cost INTEGER DEFAULT 100,
+  stock INTEGER DEFAULT -1,
+  icon TEXT DEFAULT '礼',
+  enabled INTEGER DEFAULT 1,
+  sort_order INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS redemptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  reward_id INTEGER,
+  reward_title TEXT,
+  cost INTEGER,
+  status TEXT DEFAULT 'done',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+`);
+
 // 默认头像改为 PNG（Android 端 Glide 不支持 SVG）
 try { db.prepare("UPDATE users SET avatar = '/img/default-duck.png' WHERE avatar = '/img/default-duck.svg'").run(); } catch (e) {}
 
@@ -195,6 +294,29 @@ const userPass = process.env.SEED_USER_PASSWORD;
 if (userUser && userPass) {
   db.prepare('INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)')
     .run(userUser, bcrypt.hashSync(userPass, 10), 'user');
+}
+
+// 老司机板块（满 16 岁 + 可设密码）
+db.prepare("INSERT OR IGNORE INTO boards (key, name, icon, color, description, sort_order, age_restricted) VALUES ('laosiji', '老司机', '老', '#FF6B00', '老司机专属，需满 16 岁', 5, 1)").run();
+db.prepare("UPDATE boards SET age_restricted = 1 WHERE key = 'laosiji'").run();
+
+// 开发者账号（不可被删除/封禁）
+try {
+  db.prepare("UPDATE users SET is_developer = 1, role = 'admin' WHERE username = 'xiaomu'").run();
+} catch (e) {}
+
+// 所有头像统一为默认树叶
+try { db.prepare("UPDATE users SET avatar = '/img/default-leaf.png'").run(); } catch (e) {}
+
+// 签到奖励积分（开发者可改）
+db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('checkin_points', '10')").run();
+
+// 商城种子（仅在空表时）
+if (db.prepare('SELECT COUNT(*) c FROM rewards').get().c === 0) {
+  const r = db.prepare('INSERT INTO rewards (title, description, cost, stock, icon, sort_order) VALUES (?, ?, ?, ?, ?, ?)');
+  r.run('专属头衔「老司机」', '兑换后在个人主页展示专属头衔', 200, -1, '称', 0);
+  r.run('置顶卡 ×1', '可联系管理员为一条帖子置顶 24 小时', 500, 10, '顶', 1);
+  r.run('社区会员 7 天', '兑换后联系管理员开通 7 天会员标识', 800, 50, '会', 2);
 }
 
 module.exports = db;

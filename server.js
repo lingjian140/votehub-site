@@ -1,5 +1,7 @@
 process.env.TZ = process.env.TZ || "Asia/Shanghai";
 require('dotenv').config();
+// 部署后本机无数据库时，先从 GitHub 私有仓库恢复
+try { require('./backup').restoreSync(); } catch (e) { console.error('[backup] restore error', e.message); }
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -8,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const cors = require('cors');
 const db = require('./db');
+const backup = require('./backup');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,15 +49,28 @@ const imageFilter = (req, file, cb) => {
 };
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: imageFilter });
 
-// 帖子图片上传（最多 9 张，单张 5MB）
+// 帖子图片/视频上传
 const postStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, 'post_' + Date.now() + '_' + Math.round(Math.random() * 1e9) + ext);
+    const ext = path.extname(file.originalname) || (file.fieldname === 'video' ? '.mp4' : '.jpg');
+    const prefix = file.fieldname === 'video' ? 'video_' : 'post_';
+    cb(null, prefix + Date.now() + '_' + Math.round(Math.random() * 1e9) + ext);
   }
 });
-const postUpload = multer({ storage: postStorage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: imageFilter });
+const mediaFilter = (req, file, cb) => {
+  if (file.fieldname === 'video') {
+    if (/^video\/(mp4|quicktime|webm|x-matroska)$/.test(file.mimetype)) return cb(null, true);
+    return cb(new Error('只允许 mp4/mov/webm 视频'));
+  }
+  if (/^image\/(png|jpeg|jpg|gif|webp|heic|heif)$/.test(file.mimetype)) cb(null, true);
+  else cb(new Error('只允许图片文件'));
+};
+const postUpload = multer({
+  storage: postStorage,
+  limits: { fileSize: 80 * 1024 * 1024 },
+  fileFilter: mediaFilter
+});
 
 // 中间件：解析 token
 function auth(req, res, next) {
@@ -83,6 +99,49 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function requireDeveloper(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: '请先登录' });
+  if (!isDeveloper(req.user.id)) return res.status(403).json({ error: '仅开发者可操作' });
+  next();
+}
+
+// ===== 等级 / 积分 =====
+function levelFor(points) {
+  return Math.max(1, Math.min(99, Math.floor((Number(points) || 0) / 100) + 1));
+}
+function awardPoints(userId, amount, reason) {
+  if (!amount) return;
+  db.prepare('UPDATE users SET points = MAX(0, points + ?) WHERE id = ?').run(amount, userId);
+  const p = db.prepare('SELECT points FROM users WHERE id = ?').get(userId);
+  if (p) db.prepare('UPDATE users SET level = ? WHERE id = ?').run(levelFor(p.points), userId);
+  db.prepare('INSERT INTO points_log (user_id, amount, reason) VALUES (?, ?, ?)').run(userId, amount, reason || '');
+}
+function isDeveloper(userId) {
+  const u = db.prepare('SELECT is_developer FROM users WHERE id = ?').get(userId);
+  return !!(u && u.is_developer);
+}
+function developerBlocked(res, targetId) {
+  if (isDeveloper(targetId)) {
+    res.status(403).json({ error: '开发者账号不可被操作' });
+    return true;
+  }
+  return false;
+}
+function todayStr() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function pollOf(postId, userId) {
+  const options = db.prepare(`SELECT o.id, o.text,
+      (SELECT COUNT(*) FROM post_poll_votes v WHERE v.option_id = o.id) votes
+    FROM post_poll_options o WHERE o.post_id = ? ORDER BY o.sort_order, o.id`).all(postId);
+  if (!options.length) return null;
+  const total = db.prepare('SELECT COUNT(*) c FROM post_poll_votes WHERE post_id = ?').get(postId).c;
+  const mine = userId ? db.prepare('SELECT option_id FROM post_poll_votes WHERE post_id = ? AND user_id = ?').get(postId, userId) : null;
+  return { options, total_votes: total, my_option: mine ? mine.option_id : null };
+}
+
 function getIp(req) {
   return (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
 }
@@ -96,7 +155,7 @@ app.post('/api/register', (req, res) => {
     const info = db.prepare('INSERT INTO users (username, password) VALUES (?, ?)')
       .run(username, bcrypt.hashSync(password, 10));
     const token = jwt.sign({ id: info.lastInsertRowid, username, role: 'user' }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: info.lastInsertRowid, username, role: 'user', avatar: '/img/default-duck.png' } });
+    res.json({ token, user: { id: info.lastInsertRowid, username, role: 'user', avatar: '/img/default-leaf.png', points: 0, level: 1, is_developer: 0 } });
   } catch (e) {
     if (String(e).includes('UNIQUE')) return res.status(400).json({ error: '用户名已存在' });
     res.status(500).json({ error: '注册失败' });
@@ -113,13 +172,13 @@ app.post('/api/login', (req, res) => {
   const token = jwt.sign({ id: row.id, username: row.username, role: row.role }, JWT_SECRET, { expiresIn: '30d' });
   res.json({
     token,
-    user: { id: row.id, username: row.username, role: row.role, avatar: row.avatar }
+    user: { id: row.id, username: row.username, role: row.role, avatar: row.avatar, points: row.points || 0, level: row.level || 1, is_developer: row.is_developer || 0 }
   });
 });
 
 app.get('/api/me', auth, (req, res) => {
   if (!req.user) return res.json({ user: null });
-  const row = db.prepare('SELECT id, username, avatar, role, created_at FROM users WHERE id = ?').get(req.user.id);
+  const row = db.prepare('SELECT id, username, avatar, role, created_at, bio, points, level, is_developer, can_post, muted_until FROM users WHERE id = ?').get(req.user.id);
   res.json({ user: row });
 });
 
@@ -131,8 +190,8 @@ app.post('/api/avatar', requireAuth, upload.single('avatar'), (req, res) => {
 });
 
 app.post('/api/reset-avatar', requireAuth, (req, res) => {
-  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run('/img/default-duck.png', req.user.id);
-  res.json({ avatar: '/img/default-duck.png' });
+  db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run('/img/default-leaf.png', req.user.id);
+  res.json({ avatar: '/img/default-leaf.png' });
 });
 
 // ===== 投票 =====
@@ -325,12 +384,13 @@ app.get('/api/users/:id', (req, res) => {
 
 // 管理员
 app.get('/api/admin/users', requireAdmin, (req, res) => {
-  const users = db.prepare(`SELECT id, username, role, status, avatar, muted_until, mute_reason, can_post, bio, created_at
+  const users = db.prepare(`SELECT id, username, role, status, avatar, muted_until, mute_reason, can_post, bio, points, level, is_developer, created_at
     FROM users ORDER BY id DESC`).all();
   res.json(users);
 });
 
 app.post('/api/admin/users/:id/role', requireAdmin, (req, res) => {
+  if (developerBlocked(res, parseInt(req.params.id))) return;
   const { role } = req.body;
   if (!['admin', 'user'].includes(role)) return res.status(400).json({ error: '无效' });
   db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, req.params.id);
@@ -339,6 +399,7 @@ app.post('/api/admin/users/:id/role', requireAdmin, (req, res) => {
 
 app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
   if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: '不能删除自己' });
+  if (developerBlocked(res, parseInt(req.params.id))) return;
   db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -347,6 +408,7 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
 app.post('/api/admin/users/:id/ban', requireAdmin, (req, res) => {
   const { ban } = req.body; // true=封禁, false=解封
   if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: '不能操作自己' });
+  if (developerBlocked(res, parseInt(req.params.id))) return;
   const newStatus = ban ? 'banned' : 'active';
   db.prepare('UPDATE users SET status = ? WHERE id = ?').run(newStatus, req.params.id);
   res.json({ ok: true, status: newStatus });
@@ -369,7 +431,7 @@ app.delete('/api/admin/polls/:id', requireAdmin, (req, res) => {
 function getBoards() {
   const counts = db.prepare("SELECT topic, COUNT(*) c FROM posts WHERE status='published' GROUP BY topic").all();
   const map = {}; counts.forEach(r => map[r.topic] = r.c);
-  return db.prepare('SELECT * FROM boards ORDER BY sort_order, id').all()
+  return db.prepare("SELECT id, key, name, icon, color, description, sort_order, age_restricted, require_password, password IS NOT NULL AND password != '' AS has_password FROM boards ORDER BY sort_order, id").all()
     .map(b => ({ ...b, count: map[b.key] || 0 }));
 }
 function boardExists(key) {
@@ -395,6 +457,15 @@ function guardWrite(req, res) {
 app.get('/api/boards', (req, res) => res.json(getBoards()));
 app.get('/api/topics', (req, res) => res.json(getBoards()));
 
+// 板块密码校验
+app.post('/api/boards/:id/unlock', (req, res) => {
+  const b = db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id);
+  if (!b) return res.status(404).json({ error: '板块不存在' });
+  if (!b.password) return res.json({ ok: true });
+  if (String(req.body.password || '') !== b.password) return res.status(403).json({ error: '密码错误' });
+  res.json({ ok: true });
+});
+
 // 信息流
 app.get('/api/posts', auth, (req, res) => {
   const { topic, sort = 'latest', q, page = 1, user_id, liked_by } = req.query;
@@ -413,6 +484,7 @@ app.get('/api/posts', auth, (req, res) => {
 
   const rows = db.prepare(`
     SELECT p.*, u.username, u.avatar, u.role AS user_role, u.status AS user_status,
+      u.points AS user_points, u.level AS user_level, u.is_developer AS user_developer,
       (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) likes_count,
       (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) comments_count,
       (SELECT COUNT(*) FROM post_views v WHERE v.post_id = p.id) views_count,
@@ -420,30 +492,51 @@ app.get('/api/posts', auth, (req, res) => {
     FROM posts p LEFT JOIN users u ON u.id = p.user_id
     ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}
   `).all(req.user ? req.user.id : 0, ...params);
-  rows.forEach(r => { try { r.images = JSON.parse(r.images || '[]'); } catch { r.images = []; } });
+  rows.forEach(r => {
+    try { r.images = JSON.parse(r.images || '[]'); } catch { r.images = []; }
+    r.poll = pollOf(r.id, req.user ? req.user.id : 0);
+  });
 
   const total = db.prepare(`SELECT COUNT(*) c FROM posts p ${where}`).get(...params).c;
   res.json({ posts: rows, total, page: parseInt(page), pages: Math.ceil(total / limit) || 1 });
 });
 
-// 发帖
-app.post('/api/posts', requireAuth, postUpload.array('images', 9), (req, res) => {
+// 发帖（支持图片、视频、投票）
+app.post('/api/posts', requireAuth, postUpload.fields([{ name: 'images', maxCount: 9 }, { name: 'video', maxCount: 1 }]), (req, res) => {
   if (!guardWrite(req, res)) return;
-  const { title = '', content = '', topic = 'life' } = req.body;
+  const { title = '', content = '', topic = 'life', type = 'post' } = req.body;
   const text = String(content).trim();
-  if (!text) return res.status(400).json({ error: '内容不能为空' });
+  const isPoll = type === 'poll';
+  if (!text && !isPoll) return res.status(400).json({ error: '内容不能为空' });
   if (text.length > 5000) return res.status(400).json({ error: '内容过长' });
   const t = boardExists(topic) ? topic : db.prepare('SELECT key FROM boards ORDER BY sort_order LIMIT 1').get().key;
-  const images = (req.files || []).map(f => '/uploads/' + f.filename);
-  const info = db.prepare('INSERT INTO posts (user_id, title, content, topic, images) VALUES (?, ?, ?, ?, ?)')
-    .run(req.user.id, String(title).trim().slice(0, 100), text, t, JSON.stringify(images));
-  res.json({ id: info.lastInsertRowid });
+  const files = req.files || {};
+  const images = (files.images || []).map(f => '/uploads/' + f.filename);
+  const video = files.video && files.video[0] ? '/uploads/' + files.video[0].filename : null;
+  let options = [];
+  try {
+    options = JSON.parse(req.body.poll_options || '[]');
+  } catch (e) { options = []; }
+  options = options.map(s => String(s).trim()).filter(Boolean).slice(0, 10);
+  if (isPoll && options.length < 2) return res.status(400).json({ error: '投票至少需要 2 个选项' });
+
+  const info = db.prepare('INSERT INTO posts (user_id, title, content, topic, images, type, video) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(req.user.id, String(title).trim().slice(0, 100), text || '', t, JSON.stringify(images), isPoll ? 'poll' : 'post', video);
+  if (isPoll) {
+    db.prepare('INSERT OR REPLACE INTO post_polls (post_id, question) VALUES (?, ?)').run(info.lastInsertRowid, String(req.body.question || title || '').slice(0, 100));
+    const st = db.prepare('INSERT INTO post_poll_options (post_id, text, sort_order) VALUES (?, ?, ?)');
+    options.forEach((o, i) => st.run(info.lastInsertRowid, o.slice(0, 60), i));
+  }
+  awardPoints(req.user.id, 10, '发帖');
+  const u = db.prepare('SELECT points, level FROM users WHERE id = ?').get(req.user.id);
+  res.json({ id: info.lastInsertRowid, points: u.points, level: u.level, gained: 10 });
 });
 
 // 帖子详情
 app.get('/api/posts/:id', auth, (req, res) => {
   const p = db.prepare(`
     SELECT p.*, u.username, u.avatar, u.role AS user_role,
+      u.points AS user_points, u.level AS user_level, u.is_developer AS user_developer,
       (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) likes_count,
       (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) comments_count,
       (SELECT COUNT(*) FROM post_views v WHERE v.post_id = p.id) views_count,
@@ -452,12 +545,27 @@ app.get('/api/posts/:id', auth, (req, res) => {
   `).get(req.user ? req.user.id : 0, req.params.id);
   if (!p) return res.status(404).json({ error: '帖子不存在' });
   try { p.images = JSON.parse(p.images || '[]'); } catch { p.images = []; }
+  p.poll = pollOf(p.id, req.user ? req.user.id : 0);
   db.prepare('INSERT INTO post_views (post_id, user_id) VALUES (?, ?)').run(p.id, req.user ? req.user.id : null);
   p.comments = db.prepare(`
-    SELECT c.*, u.username, u.avatar, u.role AS user_role FROM post_comments c
+    SELECT c.*, u.username, u.avatar, u.role AS user_role, u.level AS user_level FROM post_comments c
     LEFT JOIN users u ON u.id = c.user_id WHERE c.post_id = ? ORDER BY c.id ASC LIMIT 300
   `).all(p.id);
   res.json(p);
+});
+
+// 帖子投票
+app.post('/api/posts/:id/vote', requireAuth, (req, res) => {
+  const postId = parseInt(req.params.id);
+  const optionId = parseInt(req.body.option_id);
+  const post = db.prepare("SELECT id, type FROM posts WHERE id = ? AND status = 'published'").get(postId);
+  if (!post) return res.status(404).json({ error: '帖子不存在' });
+  const option = db.prepare('SELECT id FROM post_poll_options WHERE id = ? AND post_id = ?').get(optionId, postId);
+  if (!option) return res.status(400).json({ error: '选项不存在' });
+  const existing = db.prepare('SELECT option_id FROM post_poll_votes WHERE post_id = ? AND user_id = ?').get(postId, req.user.id);
+  if (existing) return res.status(400).json({ error: '你已投过票' });
+  db.prepare('INSERT INTO post_poll_votes (post_id, option_id, user_id) VALUES (?, ?, ?)').run(postId, optionId, req.user.id);
+  res.json({ poll: pollOf(postId, req.user.id) });
 });
 
 // 点赞
@@ -480,7 +588,8 @@ app.post('/api/posts/:id/comments', requireAuth, (req, res) => {
   if (!p) return res.status(404).json({ error: '帖子不存在' });
   const info = db.prepare('INSERT INTO post_comments (post_id, user_id, content) VALUES (?, ?, ?)')
     .run(p.id, req.user.id, String(content).trim().slice(0, 500));
-  const row = db.prepare('SELECT c.*, u.username, u.avatar, u.role AS user_role FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?').get(info.lastInsertRowid);
+  awardPoints(req.user.id, 3, '评论');
+  const row = db.prepare('SELECT c.*, u.username, u.avatar, u.role AS user_role, u.level AS user_level FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?').get(info.lastInsertRowid);
   res.json(row);
 });
 
@@ -493,6 +602,9 @@ app.delete('/api/posts/:id', requireAuth, (req, res) => {
   db.prepare('DELETE FROM post_likes WHERE post_id = ?').run(p.id);
   db.prepare('DELETE FROM post_comments WHERE post_id = ?').run(p.id);
   db.prepare('DELETE FROM post_views WHERE post_id = ?').run(p.id);
+  db.prepare('DELETE FROM post_poll_votes WHERE post_id = ?').run(p.id);
+  db.prepare('DELETE FROM post_poll_options WHERE post_id = ?').run(p.id);
+  db.prepare('DELETE FROM post_polls WHERE post_id = ?').run(p.id);
   res.json({ ok: true });
 });
 
@@ -513,7 +625,8 @@ app.post('/api/chat', requireAuth, (req, res) => {
   if (!content) return res.status(400).json({ error: '消息不能为空' });
   const info = db.prepare('INSERT INTO chat_messages (user_id, content) VALUES (?, ?)')
     .run(req.user.id, content.slice(0, 500));
-  const row = db.prepare('SELECT m.*, u.username, u.avatar FROM chat_messages m JOIN users u ON u.id = m.user_id WHERE m.id = ?').get(info.lastInsertRowid);
+  awardPoints(req.user.id, 1, '聊天');
+  const row = db.prepare('SELECT m.*, u.username, u.avatar, u.level AS user_level FROM chat_messages m JOIN users u ON u.id = m.user_id WHERE m.id = ?').get(info.lastInsertRowid);
   res.json(row);
 });
 
@@ -541,13 +654,27 @@ app.get('/api/notifications', requireAuth, (req, res) => {
 
 // 用户主页
 app.get('/api/users/:id/profile', auth, (req, res) => {
-  const u = db.prepare('SELECT id, username, avatar, role, status, created_at FROM users WHERE id = ?').get(req.params.id);
+  const u = db.prepare('SELECT id, username, avatar, role, status, created_at, bio, points, level, is_developer FROM users WHERE id = ?').get(req.params.id);
   if (!u) return res.status(404).json({ error: '用户不存在' });
   u.posts_count = db.prepare("SELECT COUNT(*) c FROM posts WHERE user_id = ? AND status='published'").get(u.id).c;
   u.likes_received = db.prepare(`SELECT COUNT(*) c FROM post_likes l JOIN posts p ON p.id = l.post_id WHERE p.user_id = ?`).get(u.id).c;
   u.followers = db.prepare('SELECT COUNT(*) c FROM follows WHERE following_id = ?').get(u.id).c;
   u.following = db.prepare('SELECT COUNT(*) c FROM follows WHERE follower_id = ?').get(u.id).c;
   u.is_following = req.user ? !!db.prepare('SELECT id FROM follows WHERE follower_id = ? AND following_id = ?').get(req.user.id, u.id) : false;
+
+  let friendStatus = 'none';
+  if (req.user && req.user.id === u.id) friendStatus = 'self';
+  else if (req.user) {
+    const f = db.prepare(`SELECT * FROM friendships
+      WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)`)
+      .get(req.user.id, u.id, u.id, req.user.id);
+    if (f) {
+      if (f.status === 'accepted') friendStatus = 'friend';
+      else if (f.requester_id === req.user.id) friendStatus = 'pending_out';
+      else { friendStatus = 'pending_in'; u.friend_request_id = f.id; }
+    }
+  }
+  u.friend_status = friendStatus;
   res.json(u);
 });
 
@@ -560,6 +687,239 @@ app.post('/api/users/:id/follow', requireAuth, (req, res) => {
   if (existing) db.prepare('DELETE FROM follows WHERE id = ?').run(existing.id);
   else db.prepare('INSERT INTO follows (follower_id, following_id) VALUES (?, ?)').run(req.user.id, target);
   res.json({ following: !existing, followers: db.prepare('SELECT COUNT(*) c FROM follows WHERE following_id = ?').get(target).c });
+});
+
+// ===== 好友 =====
+function friendPair(a, b) {
+  return db.prepare(`SELECT * FROM friendships
+    WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)`).get(a, b, b, a);
+}
+
+app.get('/api/friends', requireAuth, (req, res) => {
+  const me = req.user.id;
+  const friends = db.prepare(`
+    SELECT u.id, u.username, u.avatar, u.bio, u.points, u.level, u.is_developer, f.created_at
+    FROM friendships f
+    JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+    WHERE f.status = 'accepted' AND (f.requester_id = ? OR f.addressee_id = ?)
+    ORDER BY f.updated_at DESC
+  `).all(me, me, me);
+  const requests = db.prepare(`
+    SELECT f.id, f.requester_id, f.created_at, u.username, u.avatar, u.level
+    FROM friendships f JOIN users u ON u.id = f.requester_id
+    WHERE f.addressee_id = ? AND f.status = 'pending' ORDER BY f.id DESC
+  `).all(me);
+  res.json({ friends, requests });
+});
+
+app.post('/api/friends/:id/request', requireAuth, (req, res) => {
+  const target = parseInt(req.params.id);
+  if (target === req.user.id) return res.status(400).json({ error: '不能添加自己' });
+  if (!db.prepare('SELECT id FROM users WHERE id = ?').get(target)) return res.status(404).json({ error: '用户不存在' });
+  const f = friendPair(req.user.id, target);
+  if (f) {
+    if (f.status === 'accepted') return res.status(400).json({ error: '你们已经是好友' });
+    if (f.requester_id === req.user.id) return res.status(400).json({ error: '已发送申请，等待对方同意' });
+    db.prepare("UPDATE friendships SET status = 'accepted', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(f.id);
+    return res.json({ status: 'friend' });
+  }
+  db.prepare('INSERT INTO friendships (requester_id, addressee_id) VALUES (?, ?)').run(req.user.id, target);
+  res.json({ status: 'pending_out' });
+});
+
+app.post('/api/friends/requests/:id/accept', requireAuth, (req, res) => {
+  const f = db.prepare("SELECT * FROM friendships WHERE id = ? AND addressee_id = ? AND status = 'pending'").get(req.params.id, req.user.id);
+  if (!f) return res.status(404).json({ error: '申请不存在' });
+  db.prepare("UPDATE friendships SET status = 'accepted', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(f.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/friends/requests/:id/decline', requireAuth, (req, res) => {
+  const f = db.prepare("SELECT * FROM friendships WHERE id = ? AND addressee_id = ? AND status = 'pending'").get(req.params.id, req.user.id);
+  if (!f) return res.status(404).json({ error: '申请不存在' });
+  db.prepare('DELETE FROM friendships WHERE id = ?').run(f.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/friends/:id', requireAuth, (req, res) => {
+  const f = friendPair(req.user.id, parseInt(req.params.id));
+  if (f) db.prepare('DELETE FROM friendships WHERE id = ?').run(f.id);
+  res.json({ ok: true });
+});
+
+// ===== 私信 / 会话 =====
+app.get('/api/conversations', requireAuth, (req, res) => {
+  const me = req.user.id;
+  const rows = db.prepare(`
+    SELECT u.id, u.username, u.avatar, u.level,
+      (SELECT content FROM private_messages m WHERE (m.from_id = ? AND m.to_id = u.id) OR (m.from_id = u.id AND m.to_id = ?) ORDER BY m.id DESC LIMIT 1) last_message,
+      (SELECT created_at FROM private_messages m WHERE (m.from_id = ? AND m.to_id = u.id) OR (m.from_id = u.id AND m.to_id = ?) ORDER BY m.id DESC LIMIT 1) last_time,
+      (SELECT COUNT(*) FROM private_messages m WHERE m.from_id = u.id AND m.to_id = ? AND m.read_at IS NULL) unread
+    FROM friendships f
+    JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+    WHERE f.status = 'accepted' AND (f.requester_id = ? OR f.addressee_id = ?)
+    ORDER BY last_time DESC, u.username ASC
+  `).all(me, me, me, me, me, me, me, me);
+  res.json({ conversations: rows });
+});
+
+app.get('/api/messages/:id', requireAuth, (req, res) => {
+  const other = parseInt(req.params.id);
+  const after = parseInt(req.query.after || 0);
+  if (!friendPair(req.user.id, other) || friendPair(req.user.id, other).status !== 'accepted') {
+    return res.status(403).json({ error: '只能和好友私信' });
+  }
+  const rows = db.prepare(`
+    SELECT m.*, u.username, u.avatar FROM private_messages m
+    JOIN users u ON u.id = m.from_id
+    WHERE ((m.from_id = ? AND m.to_id = ?) OR (m.from_id = ? AND m.to_id = ?))
+      ${after ? 'AND m.id > ?' : ''}
+    ORDER BY m.id ASC LIMIT 200
+  `).all(req.user.id, other, other, req.user.id, ...(after ? [after] : []));
+  db.prepare('UPDATE private_messages SET read_at = CURRENT_TIMESTAMP WHERE from_id = ? AND to_id = ? AND read_at IS NULL').run(other, req.user.id);
+  res.json({ messages: rows });
+});
+
+app.post('/api/messages/:id', requireAuth, (req, res) => {
+  if (!guardWrite(req, res)) return;
+  const other = parseInt(req.params.id);
+  const content = String(req.body.content || '').trim();
+  if (!content) return res.status(400).json({ error: '消息不能为空' });
+  const f = friendPair(req.user.id, other);
+  if (!f || f.status !== 'accepted') return res.status(403).json({ error: '只能和好友私信' });
+  const info = db.prepare('INSERT INTO private_messages (from_id, to_id, content) VALUES (?, ?, ?)')
+    .run(req.user.id, other, content.slice(0, 1000));
+  awardPoints(req.user.id, 1, '私信');
+  const row = db.prepare('SELECT m.*, u.username, u.avatar FROM private_messages m JOIN users u ON u.id = m.from_id WHERE m.id = ?').get(info.lastInsertRowid);
+  res.json(row);
+});
+
+// ===== 签到 =====
+function settingValue(key, def) {
+  const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return r ? r.value : def;
+}
+function checkinReward() {
+  return Math.max(1, parseInt(settingValue('checkin_points', '10')) || 10);
+}
+function checkinStreak(userId, today) {
+  const dates = db.prepare('SELECT date FROM checkins WHERE user_id = ? ORDER BY date DESC LIMIT 400').all(userId).map(r => r.date);
+  if (!dates.length) return 0;
+  const set = new Set(dates);
+  const d = new Date(today + 'T00:00:00');
+  if (!set.has(today)) d.setDate(d.getDate() - 1);
+  let streak = 0;
+  const pad = n => String(n).padStart(2, '0');
+  while (true) {
+    const s = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (!set.has(s)) break;
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+}
+
+app.get('/api/checkin', requireAuth, (req, res) => {
+  const today = todayStr();
+  const todayRow = db.prepare('SELECT * FROM checkins WHERE user_id = ? AND date = ?').get(req.user.id, today);
+  const u = db.prepare('SELECT points, level FROM users WHERE id = ?').get(req.user.id);
+  const total = db.prepare('SELECT COUNT(*) c FROM checkins WHERE user_id = ?').get(req.user.id).c;
+  res.json({
+    checked: !!todayRow,
+    today_points: todayRow ? todayRow.points : checkinReward(),
+    reward: checkinReward(),
+    streak: checkinStreak(req.user.id, today),
+    total_days: total,
+    points: u.points,
+    level: u.level
+  });
+});
+
+app.post('/api/checkin', requireAuth, (req, res) => {
+  const today = todayStr();
+  const exists = db.prepare('SELECT id FROM checkins WHERE user_id = ? AND date = ?').get(req.user.id, today);
+  if (exists) return res.status(400).json({ error: '今天已经签到过了' });
+  const reward = checkinReward();
+  db.prepare('INSERT INTO checkins (user_id, date, points) VALUES (?, ?, ?)').run(req.user.id, today, reward);
+  awardPoints(req.user.id, reward, '签到');
+  const u = db.prepare('SELECT points, level FROM users WHERE id = ?').get(req.user.id);
+  res.json({ ok: true, gained: reward, points: u.points, level: u.level, streak: checkinStreak(req.user.id, today), checked: true });
+});
+
+// ===== 积分商城 =====
+app.get('/api/rewards', requireAuth, (req, res) => {
+  const rows = db.prepare('SELECT id, title, description, cost, stock, icon, sort_order FROM rewards WHERE enabled = 1 ORDER BY sort_order, id').all();
+  const u = db.prepare('SELECT points, level FROM users WHERE id = ?').get(req.user.id);
+  res.json({ rewards: rows, points: u.points, level: u.level });
+});
+
+app.post('/api/rewards/:id/redeem', requireAuth, (req, res) => {
+  const me = db.prepare('SELECT points FROM users WHERE id = ?').get(req.user.id);
+  const r = db.prepare('SELECT * FROM rewards WHERE id = ? AND enabled = 1').get(req.params.id);
+  if (!r) return res.status(404).json({ error: '商品不存在' });
+  if (r.stock === 0) return res.status(400).json({ error: '库存不足' });
+  if (me.points < r.cost) return res.status(400).json({ error: '积分不足' });
+  db.prepare('UPDATE users SET points = points - ? WHERE id = ?').run(r.cost, req.user.id);
+  if (r.stock > 0) db.prepare('UPDATE rewards SET stock = stock - 1 WHERE id = ?').run(r.id);
+  db.prepare('INSERT INTO redemptions (user_id, reward_id, reward_title, cost) VALUES (?, ?, ?, ?)').run(req.user.id, r.id, r.title, r.cost);
+  db.prepare('INSERT INTO points_log (user_id, amount, reason) VALUES (?, ?, ?)').run(req.user.id, -r.cost, '兑换：' + r.title);
+  const u = db.prepare('SELECT points, level FROM users WHERE id = ?').get(req.user.id);
+  const lv = levelFor(u.points);
+  db.prepare('UPDATE users SET level = ? WHERE id = ?').run(lv, req.user.id);
+  res.json({ ok: true, points: u.points, level: lv });
+});
+
+app.get('/api/me/redemptions', requireAuth, (req, res) => {
+  res.json({ redemptions: db.prepare('SELECT * FROM redemptions WHERE user_id = ? ORDER BY id DESC LIMIT 100').all(req.user.id) });
+});
+
+app.get('/api/me/points-log', requireAuth, (req, res) => {
+  res.json({ logs: db.prepare('SELECT * FROM points_log WHERE user_id = ? ORDER BY id DESC LIMIT 100').all(req.user.id) });
+});
+
+// ===== 管理员：开发者配置签到/商城 =====
+app.get('/api/admin/rewards', requireAdmin, (req, res) => {
+  res.json({
+    rewards: db.prepare('SELECT * FROM rewards ORDER BY sort_order, id').all(),
+    checkin_points: checkinReward(),
+    redemptions: db.prepare('SELECT r.*, u.username FROM redemptions r LEFT JOIN users u ON u.id = r.user_id ORDER BY r.id DESC LIMIT 100').all()
+  });
+});
+
+app.put('/api/admin/settings/checkin', requireDeveloper, (req, res) => {
+  const points = parseInt(req.body.points);
+  if (!points || points < 1 || points > 10000) return res.status(400).json({ error: '积分需在 1-10000 之间' });
+  db.prepare("INSERT INTO settings (key, value) VALUES ('checkin_points', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(points));
+  res.json({ ok: true, checkin_points: points });
+});
+
+app.post('/api/admin/rewards', requireDeveloper, (req, res) => {
+  const { title, description = '', cost = 100, stock = -1, icon = '礼' } = req.body;
+  if (!title) return res.status(400).json({ error: '名称必填' });
+  const info = db.prepare('INSERT INTO rewards (title, description, cost, stock, icon, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(String(title).slice(0, 40), String(description).slice(0, 200), Math.max(1, parseInt(cost) || 100), parseInt(stock), String(icon).slice(0, 2), Date.now());
+  res.json({ id: info.lastInsertRowid });
+});
+
+app.put('/api/admin/rewards/:id', requireDeveloper, (req, res) => {
+  const r = db.prepare('SELECT * FROM rewards WHERE id = ?').get(req.params.id);
+  if (!r) return res.status(404).json({ error: '商品不存在' });
+  const { title, description, cost, stock, icon, enabled } = req.body;
+  db.prepare('UPDATE rewards SET title = ?, description = ?, cost = ?, stock = ?, icon = ?, enabled = ? WHERE id = ?').run(
+    title !== undefined ? String(title).slice(0, 40) : r.title,
+    description !== undefined ? String(description).slice(0, 200) : r.description,
+    cost !== undefined ? Math.max(1, parseInt(cost) || r.cost) : r.cost,
+    stock !== undefined ? parseInt(stock) : r.stock,
+    icon !== undefined ? String(icon).slice(0, 2) : r.icon,
+    enabled !== undefined ? (enabled ? 1 : 0) : r.enabled,
+    r.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/rewards/:id', requireDeveloper, (req, res) => {
+  db.prepare('DELETE FROM rewards WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 // 管理员：社区数据
@@ -583,7 +943,11 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
     banned: db.prepare("SELECT COUNT(*) c FROM users WHERE status='banned'").get().c,
     muted: db.prepare("SELECT COUNT(*) c FROM users WHERE muted_until IS NOT NULL AND muted_until > datetime('now')").get().c,
     pending_reports: db.prepare("SELECT COUNT(*) c FROM reports WHERE status='pending'").get().c,
-    today_posts: db.prepare("SELECT COUNT(*) c FROM posts WHERE date(created_at) = date('now', 'localtime')").get().c
+    today_posts: db.prepare("SELECT COUNT(*) c FROM posts WHERE date(created_at) = date('now', 'localtime')").get().c,
+    checkins: db.prepare('SELECT COUNT(*) c FROM checkins').get().c,
+    redemptions: db.prepare('SELECT COUNT(*) c FROM redemptions').get().c,
+    friends: db.prepare("SELECT COUNT(*) c FROM friendships WHERE status='accepted'").get().c,
+    private_messages: db.prepare('SELECT COUNT(*) c FROM private_messages').get().c
   });
 });
 
@@ -591,6 +955,7 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
 app.post('/api/admin/users/:id/mute', requireAdmin, (req, res) => {
   const target = parseInt(req.params.id);
   if (target === req.user.id) return res.status(400).json({ error: '不能操作自己' });
+  if (developerBlocked(res, target)) return;
   const { minutes = 0, reason = '' } = req.body;
   let until = null;
   if (Number(minutes) > 0) {
@@ -604,6 +969,7 @@ app.post('/api/admin/users/:id/mute', requireAdmin, (req, res) => {
 
 // 管理员：发帖授权
 app.post('/api/admin/users/:id/can-post', requireAdmin, (req, res) => {
+  if (developerBlocked(res, parseInt(req.params.id))) return;
   const can = req.body.can_post ? 1 : 0;
   db.prepare('UPDATE users SET can_post = ? WHERE id = ?').run(can, req.params.id);
   res.json({ ok: true, can_post: can });
@@ -611,15 +977,16 @@ app.post('/api/admin/users/:id/can-post', requireAdmin, (req, res) => {
 
 // 管理员：板块管理
 app.post('/api/admin/boards', requireAdmin, (req, res) => {
-  const { name, icon = '社', color = '#00B34F', description = '' } = req.body;
+  const { name, icon = '社', color = '#00B34F', description = '', password = '', age_restricted = 0 } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ error: '板块名称必填' });
   let key = String(name).trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, '');
   if (!key) key = 'b' + Date.now();
   if (/[\u4e00-\u9fa5]/.test(key)) key = 'b' + Date.now();
   if (boardExists(key)) key = key + Date.now();
   const maxOrder = db.prepare('SELECT COALESCE(MAX(sort_order),0) m FROM boards').get().m;
-  const info = db.prepare('INSERT INTO boards (key, name, icon, color, description, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(key, String(name).trim().slice(0, 20), String(icon).slice(0, 2), color, String(description).slice(0, 100), maxOrder + 1);
+  const pwd = String(password || '').trim();
+  const info = db.prepare('INSERT INTO boards (key, name, icon, color, description, sort_order, password, require_password, age_restricted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(key, String(name).trim().slice(0, 20), String(icon).slice(0, 2), color, String(description).slice(0, 100), maxOrder + 1, pwd || null, pwd ? 1 : 0, age_restricted ? 1 : 0);
   res.json({ id: info.lastInsertRowid, key });
 });
 
@@ -627,8 +994,16 @@ app.put('/api/admin/boards/:id', requireAdmin, (req, res) => {
   const b = db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id);
   if (!b) return res.status(404).json({ error: '板块不存在' });
   const { name = b.name, icon = b.icon, color = b.color, description = b.description } = req.body;
-  db.prepare('UPDATE boards SET name = ?, icon = ?, color = ?, description = ? WHERE id = ?')
-    .run(String(name).slice(0, 20), String(icon).slice(0, 2), color, String(description).slice(0, 100), b.id);
+  let password = b.password;
+  let require_password = b.require_password;
+  if (req.body.password !== undefined) {
+    const pwd = String(req.body.password || '').trim();
+    password = pwd || null;
+    require_password = pwd ? 1 : 0;
+  }
+  const age_restricted = req.body.age_restricted !== undefined ? (req.body.age_restricted ? 1 : 0) : b.age_restricted;
+  db.prepare('UPDATE boards SET name = ?, icon = ?, color = ?, description = ?, password = ?, require_password = ?, age_restricted = ? WHERE id = ?')
+    .run(String(name).slice(0, 20), String(icon).slice(0, 2), color, String(description).slice(0, 100), password, require_password, age_restricted, b.id);
   res.json({ ok: true });
 });
 
@@ -705,6 +1080,9 @@ app.post('/api/admin/reports/:id', requireAdmin, (req, res) => {
       db.prepare('DELETE FROM post_likes WHERE post_id = ?').run(r.target_id);
       db.prepare('DELETE FROM post_comments WHERE post_id = ?').run(r.target_id);
       db.prepare('DELETE FROM post_views WHERE post_id = ?').run(r.target_id);
+      db.prepare('DELETE FROM post_poll_votes WHERE post_id = ?').run(r.target_id);
+      db.prepare('DELETE FROM post_poll_options WHERE post_id = ?').run(r.target_id);
+      db.prepare('DELETE FROM post_polls WHERE post_id = ?').run(r.target_id);
     } else if (r.target_type === 'comment') {
       db.prepare('DELETE FROM post_comments WHERE id = ?').run(r.target_id);
     }
@@ -737,4 +1115,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`\n  投票站运行中 → http://localhost:${PORT}\n  种子账号由 SEED_* 环境变量注入（凭据不会出现在日志中）\n`);
+  backup.start();
 });

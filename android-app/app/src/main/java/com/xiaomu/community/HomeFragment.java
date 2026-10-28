@@ -69,6 +69,8 @@ public class HomeFragment extends Fragment {
             }
             @Override public void onLike(JSONObject p, int pos) { like(p, pos); }
             @Override public void onShare(JSONObject p) { share(p); }
+            @Override public void onUser(JSONObject p) { openUser(p.optInt("user_id")); }
+            @Override public void onVote(JSONObject p, int optionId) { vote(p, optionId); }
         });
         adapter.setBoards(boardNames);
 
@@ -157,11 +159,79 @@ public class HomeFragment extends Fragment {
         lp.rightMargin = dp(8);
         tv.setLayoutParams(lp);
         tv.setOnClickListener(x -> {
-            topic = key;
-            buildChips();
-            load(true);
+            JSONObject b = findBoard(key);
+            if (b != null) askBoardAccess(b); else enterBoard(key);
         });
         chipRow.addView(tv);
+    }
+
+    private JSONObject findBoard(String key) {
+        for (JSONObject b : boards) if (key.equals(b.optString("key"))) return b;
+        return null;
+    }
+
+    private void askBoardAccess(JSONObject b) {
+        String key = b.optString("key");
+        if (b.optInt("age_restricted", 0) == 1 && !Session.ageConfirmed()) {
+            new MaterialAlertDialogBuilder(getActivity())
+                    .setTitle("年龄提示")
+                    .setMessage("「" + b.optString("name") + "」仅限年满 16 岁的用户进入。\n请确认你的年龄：")
+                    .setPositiveButton("我已满16岁", (d, w) -> {
+                        Session.setAgeConfirmed();
+                        checkBoardPassword(b);
+                    })
+                    .setNegativeButton("我未满16岁", (d, w) -> toast("未满16岁不可进入该板块"))
+                    .show();
+            return;
+        }
+        checkBoardPassword(b);
+    }
+
+    private void checkBoardPassword(JSONObject b) {
+        String key = b.optString("key");
+        if (b.optInt("has_password", 0) != 1 || Session.boardUnlocked(key)) {
+            enterBoard(key);
+            return;
+        }
+        EditText et = new EditText(getActivity());
+        et.setHint("请输入板块密码");
+        et.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        new MaterialAlertDialogBuilder(getActivity())
+                .setTitle("进入「" + b.optString("name") + "」")
+                .setMessage("该板块需要密码才能访问")
+                .setView(et)
+                .setPositiveButton("进入", (d, w) -> {
+                    JSONObject body = new JSONObject();
+                    try { body.put("password", et.getText().toString().trim()); } catch (Exception ignored) {}
+                    Api.post("/api/boards/" + b.optInt("id") + "/unlock", body, new Api.Cb() {
+                        @Override public void ok(JSONObject o) { Session.unlockBoard(key); enterBoard(key); }
+                        @Override public void fail(String msg) { toast(msg); }
+                    });
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void enterBoard(String key) {
+        topic = key;
+        buildChips();
+        load(true);
+    }
+
+    private void openUser(int userId) {
+        if (userId <= 0) return;
+        Intent i = new Intent(getActivity(), UserProfileActivity.class);
+        i.putExtra("id", userId);
+        startActivity(i);
+    }
+
+    private void vote(JSONObject p, int optionId) {
+        JSONObject body = new JSONObject();
+        try { body.put("option_id", optionId); } catch (Exception ignored) {}
+        Api.post("/api/posts/" + p.optInt("id") + "/vote", body, new Api.Cb() {
+            @Override public void ok(JSONObject o) { toast("投票成功"); load(true); }
+            @Override public void fail(String msg) { toast(msg); }
+        });
     }
 
     private void load(boolean reset) {

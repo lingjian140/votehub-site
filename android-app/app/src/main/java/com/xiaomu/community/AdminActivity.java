@@ -207,6 +207,14 @@ public class AdminActivity extends AppCompatActivity {
 
     // ===== 用户管理 =====
     private void showUserActions(JSONObject u) {
+        if (u.optInt("is_developer", 0) == 1) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(u.optString("username") + "  (ID " + u.optInt("id") + ")")
+                    .setMessage("开发者账号，管理员不可封禁、禁言或删除。")
+                    .setPositiveButton("知道了", null)
+                    .show();
+            return;
+        }
         boolean banned = "banned".equals(u.optString("status"));
         boolean muted = !u.optString("muted_until", "").isEmpty() && isFuture(u.optString("muted_until"));
         boolean admin = "admin".equals(u.optString("role"));
@@ -306,11 +314,19 @@ public class AdminActivity extends AppCompatActivity {
         EditText etName = v.findViewById(R.id.et_name);
         EditText etIcon = v.findViewById(R.id.et_icon);
         EditText etDesc = v.findViewById(R.id.et_desc);
+        android.widget.CheckBox cbAge = v.findViewById(R.id.cb_age);
+        android.widget.CheckBox cbPwd = v.findViewById(R.id.cb_password);
+        EditText etPwd = v.findViewById(R.id.et_password);
         if (edit) {
             etName.setText(board.optString("name"));
             etIcon.setText(board.optString("icon", "社"));
             etDesc.setText(board.optString("description", ""));
+            cbAge.setChecked(board.optInt("age_restricted", 0) == 1);
+            cbPwd.setChecked(board.optInt("has_password", 0) == 1 || board.optInt("require_password", 0) == 1);
         }
+        etPwd.setVisibility(cbPwd.isChecked() ? View.VISIBLE : View.GONE);
+        cbPwd.setOnCheckedChangeListener((btn, checked) ->
+                etPwd.setVisibility(checked ? View.VISIBLE : View.GONE));
 
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
                 .setTitle(edit ? "编辑板块" : "新建板块")
@@ -320,11 +336,16 @@ public class AdminActivity extends AppCompatActivity {
                     String name = etName.getText().toString().trim();
                     if (name.isEmpty()) { toast("板块名称不能为空"); return; }
                     String icon = etIcon.getText().toString().trim();
+                    String pwd = etPwd.getText().toString().trim();
+                    if (!edit && cbPwd.isChecked() && pwd.isEmpty()) { toast("请输入板块密码"); return; }
                     JSONObject body = new JSONObject();
                     try {
                         body.put("name", name);
                         body.put("icon", icon.isEmpty() ? "社" : icon);
                         body.put("description", etDesc.getText().toString().trim());
+                        body.put("age_restricted", cbAge.isChecked() ? 1 : 0);
+                        if (!cbPwd.isChecked()) body.put("password", "");
+                        else if (!pwd.isEmpty()) body.put("password", pwd);
                     } catch (Exception ignored) {}
                     if (edit) {
                         Api.put("/api/admin/boards/" + board.optInt("id"), body, new Api.Cb() {

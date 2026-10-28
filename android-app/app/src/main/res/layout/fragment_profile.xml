@@ -52,6 +52,15 @@
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/lv_points"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="Lv.1 · 0 积分"
+                        android:textColor="#FFFFE0"
+                        android:textSize="12sp" />
+
+                    <TextView
                         android:id="@+id/bio"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -240,6 +249,39 @@
             <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginStart="16dp" android:background="@color/line" />
 
             <LinearLayout
+                android:id="@+id/menu_checkin"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_logo" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:text="签到 · 积分商城"
+                    android:textColor="@color/text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="›"
+                    android:textColor="@color/muted"
+                    android:textSize="18sp" />
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginStart="16dp" android:background="@color/line" />
+
+            <LinearLayout
                 android:id="@+id/menu_avatar"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
@@ -365,6 +407,46 @@
                     android:layout_marginStart="12dp"
                     android:layout_weight="1"
                     android:text="管理后台"
+                    android:textColor="@color/text"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="›"
+                    android:textColor="@color/muted"
+                    android:textSize="18sp" />
+            </LinearLayout>
+
+            <View
+                android:id="@+id/divider_dev"
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginStart="16dp"
+                android:background="@color/line"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/menu_dev"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_edit" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:text="开发者设置（签到/商城）"
                     android:textColor="@color/text"
                     android:textSize="14sp" />
 

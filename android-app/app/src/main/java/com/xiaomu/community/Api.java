@@ -37,7 +37,7 @@ public class Api {
     }
 
     public static String mediaUrl(String path) {
-        if (path == null || path.isEmpty()) return BASE + "/img/default-duck.png";
+        if (path == null || path.isEmpty()) return BASE + "/img/default-leaf.png";
         if (path.startsWith("http")) return path;
         return BASE + path;
     }
@@ -72,6 +72,21 @@ public class Api {
         if (fields != null) for (Map.Entry<String, String> e : fields.entrySet()) b.addFormDataPart(e.getKey(), e.getValue());
         if (images != null) for (File f : images) {
             b.addFormDataPart(fileField, f.getName(), RequestBody.create(f, mimeOf(f)));
+        }
+        enqueue(req(path).post(b.build()).build(), cb);
+    }
+
+    /** 发帖：同时支持图片与视频 */
+    public static void uploadPost(String path, Map<String, String> fields, List<File> images, File video, Cb cb) {
+        MultipartBody.Builder b = new MultipartBody.Builder().setType(MultipartBody.FORM);
+        if (fields != null) for (Map.Entry<String, String> e : fields.entrySet()) b.addFormDataPart(e.getKey(), e.getValue());
+        if (images != null) for (File f : images) {
+            b.addFormDataPart("images", f.getName(), RequestBody.create(f, mimeOf(f)));
+        }
+        if (video != null) {
+            String n = video.getName().toLowerCase();
+            String type = n.endsWith(".mov") ? "video/quicktime" : n.endsWith(".webm") ? "video/webm" : "video/mp4";
+            b.addFormDataPart("video", video.getName(), RequestBody.create(video, MediaType.parse(type)));
         }
         enqueue(req(path).post(b.build()).build(), cb);
     }

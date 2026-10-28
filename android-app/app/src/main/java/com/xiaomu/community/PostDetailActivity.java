@@ -89,7 +89,8 @@ public class PostDetailActivity extends AppCompatActivity {
     }
 
     private void bind() {
-        ((TextView) findViewById(R.id.p_username)).setText(post.optString("username"));
+        ((TextView) findViewById(R.id.p_username)).setText(
+                post.optString("username") + " · Lv." + Math.max(1, post.optInt("user_level", 1)));
         ((TextView) findViewById(R.id.p_time)).setText(TimeUtil.ago(post.optString("created_at")));
         Glide.with(this).load(Api.mediaUrl(post.optString("avatar"))).circleCrop()
                 .into((ImageView) findViewById(R.id.p_avatar));
@@ -101,6 +102,20 @@ public class PostDetailActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.p_content)).setText(post.optString("content"));
 
         PostAdapter.bindImages(findViewById(R.id.p_images), post.optJSONArray("images"), this);
+
+        TextView video = findViewById(R.id.p_video);
+        String videoPath = post.optString("video", "");
+        video.setVisibility(videoPath.isEmpty() ? View.GONE : View.VISIBLE);
+        video.setOnClickListener(v -> {
+            try {
+                Intent it = new Intent(Intent.ACTION_VIEW);
+                it.setDataAndType(android.net.Uri.parse(Api.mediaUrl(videoPath)), "video/*");
+                it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                startActivity(it);
+            } catch (Exception ignored) { toast("无法播放该视频"); }
+        });
+
+        bindPoll();
 
         ((TextView) findViewById(R.id.p_board)).setText(boards.getOrDefault(post.optString("topic"), "社区"));
         views.setText("浏览 " + post.optInt("views_count", 0));
@@ -114,6 +129,26 @@ public class PostDetailActivity extends AppCompatActivity {
         JSONArray cs = post.optJSONArray("comments");
         noComment.setVisibility(cs == null || cs.length() == 0 ? View.VISIBLE : View.GONE);
         if (cs != null) for (int i = 0; i < cs.length(); i++) addCommentView(cs.optJSONObject(i), false);
+    }
+
+    private void bindPoll() {
+        PostAdapter.bindPoll(findViewById(R.id.p_poll), post.optJSONObject("poll"),
+                post, new PostAdapter.Listener() {
+                    @Override public void onOpen(JSONObject p) {}
+                    @Override public void onLike(JSONObject p, int position) {}
+                    @Override public void onShare(JSONObject p) {}
+                    @Override public void onUser(JSONObject p) {}
+                    @Override public void onVote(JSONObject p, int optionId) { vote(optionId); }
+                }, this);
+    }
+
+    private void vote(int optionId) {
+        JSONObject body = new JSONObject();
+        try { body.put("option_id", optionId); } catch (Exception ignored) {}
+        Api.post("/api/posts/" + postId + "/vote", body, new Api.Cb() {
+            @Override public void ok(JSONObject o) { toast("投票成功"); load(); }
+            @Override public void fail(String msg) { toast(msg); }
+        });
     }
 
     private void updateLike() {
@@ -229,9 +264,9 @@ public class PostDetailActivity extends AppCompatActivity {
     }
 
     private void openUser() {
-        Intent i = new Intent(this, PostListActivity.class);
-        i.putExtra("user_id", post.optInt("user_id"));
-        i.putExtra("title", post.optString("username"));
+        if (post == null) return;
+        Intent i = new Intent(this, UserProfileActivity.class);
+        i.putExtra("id", post.optInt("user_id"));
         startActivity(i);
     }
 

@@ -2,146 +2,36 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>投票站 · VoteHub</title>
-<link rel="icon" href="/img/default-duck.svg">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>小木社区</title>
+<link rel="icon" href="/img/default-leaf.png">
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-
-<header class="nav">
-  <div class="nav-inner">
-    <a href="#/" class="logo">🦆 投票站</a>
-    <nav class="nav-links">
-      <a href="#/" data-route="/">首页</a>
-      <a href="#/create" data-route="/create">创建投票</a>
-      <a href="#/?mine=1" data-route="/mine">我的投票</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#/">小木社区</a>
+    <nav class="nav">
+      <a href="#/" data-nav="home">首页</a>
+      <a href="#/messages" data-nav="messages">消息</a>
+      <a href="#/publish" data-nav="publish">发帖</a>
+      <a href="#/me" data-nav="me">我的</a>
     </nav>
-    <div id="user-area" class="user-area"></div>
+    <div class="user-area" id="user-area"></div>
   </div>
 </header>
-
-<main id="app"><div class="loader">加载中…</div></main>
-
-<template id="tpl-home">
-  <div class="container">
-    <div class="hero">
-      <h1>让你的声音被听见</h1>
-      <p>快速创建投票，支持多选 / 匿名 / 定时 / 评论 / 分享链接</p>
-      <div class="hero-actions">
-        <a class="btn primary" href="#/create">+ 立即创建投票</a>
-        <button class="btn ghost" data-sort="popular">🔥 热门</button>
-        <button class="btn ghost" data-sort="latest">🆕 最新</button>
-        <button class="btn ghost" data-sort="mostvoted">🗳️ 最多票</button>
-      </div>
-    </div>
-    <div class="toolbar">
-      <input class="search" placeholder="🔍 搜索投票标题或备注…" data-search>
-      <select data-filter-status>
-        <option value="">全部状态</option>
-        <option value="active">进行中</option>
-        <option value="closed">已结束</option>
-      </select>
-    </div>
-    <div id="poll-grid" class="poll-grid"></div>
-    <div id="pager" class="pager"></div>
-  </div>
-</template>
-
-<template id="tpl-create">
-  <div class="container narrow">
-    <h2>创建新投票</h2>
-    <form id="create-form" class="card form">
-      <label>投票标题 *
-        <input name="title" maxlength="100" required placeholder="比如：今晚吃什么？">
-      </label>
-      <label>备注（可选）
-        <textarea name="description" rows="2" maxlength="500" placeholder="填写备注说明（可选）…"></textarea>
-      </label>
-      <fieldset>
-        <legend>投票选项 *（至少 2 项）</legend>
-        <div id="options-list"></div>
-        <button type="button" class="btn small" id="add-option">+ 添加选项</button>
-      </fieldset>
-      <fieldset class="checks">
-        <label><input type="checkbox" name="is_multiple"> 允许多选</label>
-        <label><input type="checkbox" name="is_anonymous"> 匿名投票（不记录账号）</label>
-      </fieldset>
-      <label data-max-wrap style="display:none">最多可选几项
-        <input name="max_choices" type="number" min="2" value="2">
-      </label>
-      <div class="row">
-        <label>开始时间（可选）
-          <input name="start_time" type="datetime-local">
-        </label>
-        <label>结束时间（可选）
-          <input name="end_time" type="datetime-local">
-        </label>
-      </div>
-      <div class="form-actions">
-        <button class="btn primary big" type="submit">🚀 发布投票</button>
-      </div>
-    </form>
-  </div>
-</template>
-
-<template id="tpl-detail">
-  <div class="container narrow">
-    <div id="poll-detail"></div>
-  </div>
-</template>
-
-<template id="tpl-login">
-  <div class="container narrow center">
-    <div class="card auth">
-      <img src="/img/default-duck.svg" class="logo-avatar">
-      <h2>欢迎回来 🦆</h2>
-      <form id="login-form">
-        <input name="username" placeholder="用户名" required autofocus>
-        <input name="password" type="password" placeholder="密码" required>
-        <button class="btn primary big" type="submit">登录</button>
-      </form>
-      <p class="switch">还没账号？<a href="#/register">立即注册</a></p>
-      <p class="hint">管理员账号由部署方分配，如需开通请联系站点管理员</p>
+<main id="app"><div class="loading">加载中…</div></main>
+<div class="toast" id="toast"></div>
+<div class="modal-mask" id="modal" hidden>
+  <div class="modal">
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modal-cancel">取消</button>
+      <button class="btn primary" id="modal-ok">确定</button>
     </div>
   </div>
-</template>
-
-<template id="tpl-register">
-  <div class="container narrow center">
-    <div class="card auth">
-      <h2>创建账号</h2>
-      <form id="register-form">
-        <input name="username" placeholder="用户名（≥3位）" required minlength="3" autofocus>
-        <input name="password" type="password" placeholder="密码（≥4位）" required minlength="4">
-        <input name="confirm" type="password" placeholder="再次输入密码" required>
-        <button class="btn primary big" type="submit">注册并登录</button>
-      </form>
-      <p class="switch">已有账号？<a href="#/login">去登录</a></p>
-    </div>
-  </div>
-</template>
-
-<template id="tpl-me">
-  <div class="container narrow">
-    <h2>个人中心</h2>
-    <div id="me-content" class="card"></div>
-  </div>
-</template>
-
-<template id="tpl-admin">
-  <div class="container">
-    <h2>管理后台</h2>
-    <div class="card">
-      <h3>用户管理</h3>
-      <table id="admin-users">
-        <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </div>
-</template>
-
+</div>
 <script src="/js/app.js"></script>
 </body>
 </html>

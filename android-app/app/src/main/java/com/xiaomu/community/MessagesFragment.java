@@ -47,6 +47,8 @@ public class MessagesFragment extends Fragment {
         swipe.setOnRefreshListener(this::load);
         v.findViewById(R.id.chat_entry).setOnClickListener(x ->
                 startActivity(new Intent(getActivity(), ChatActivity.class)));
+        v.findViewById(R.id.friends_entry).setOnClickListener(x ->
+                startActivity(new Intent(getActivity(), FriendsActivity.class)));
         load();
     }
 

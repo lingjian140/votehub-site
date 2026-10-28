@@ -30,7 +30,7 @@ import java.util.Collections;
 
 public class ProfileFragment extends Fragment {
     private ImageView avatar;
-    private TextView username, bio, statPosts, statLikes, statFollowing, statFollowers;
+    private TextView username, bio, statPosts, statLikes, statFollowing, statFollowers, lvPoints;
 
     private final ActivityResultLauncher<String> picker =
             registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
@@ -48,6 +48,7 @@ public class ProfileFragment extends Fragment {
         avatar = v.findViewById(R.id.avatar);
         username = v.findViewById(R.id.username);
         bio = v.findViewById(R.id.bio);
+        lvPoints = v.findViewById(R.id.lv_points);
         statPosts = v.findViewById(R.id.stat_posts);
         statLikes = v.findViewById(R.id.stat_likes);
         statFollowing = v.findViewById(R.id.stat_following);
@@ -57,13 +58,21 @@ public class ProfileFragment extends Fragment {
         v.findViewById(R.id.menu_admin).setVisibility(admin ? View.VISIBLE : View.GONE);
         v.findViewById(R.id.divider_admin).setVisibility(admin ? View.VISIBLE : View.GONE);
 
+        boolean dev = Session.isDeveloper();
+        v.findViewById(R.id.menu_dev).setVisibility(dev ? View.VISIBLE : View.GONE);
+        v.findViewById(R.id.divider_dev).setVisibility(dev ? View.VISIBLE : View.GONE);
+
         v.findViewById(R.id.menu_posts).setOnClickListener(x -> openList("我的帖子", -1));
         v.findViewById(R.id.menu_liked).setOnClickListener(x -> openLiked());
+        v.findViewById(R.id.menu_checkin).setOnClickListener(x ->
+                startActivity(new Intent(getActivity(), CheckinActivity.class)));
         v.findViewById(R.id.menu_avatar).setOnClickListener(x -> picker.launch("image/*"));
         v.findViewById(R.id.menu_bio).setOnClickListener(x -> editBio());
         v.findViewById(R.id.menu_pwd).setOnClickListener(x -> editPassword());
         v.findViewById(R.id.menu_admin).setOnClickListener(x ->
                 startActivity(new Intent(getActivity(), AdminActivity.class)));
+        v.findViewById(R.id.menu_dev).setOnClickListener(x ->
+                startActivity(new Intent(getActivity(), DevSettingsActivity.class)));
         v.findViewById(R.id.menu_logout).setOnClickListener(x -> logout());
 
         username.setText(Session.username());
@@ -184,6 +193,10 @@ public class ProfileFragment extends Fragment {
                 statLikes.setText(String.valueOf(o.optInt("likes_received")));
                 statFollowing.setText(String.valueOf(o.optInt("following")));
                 statFollowers.setText(String.valueOf(o.optInt("followers")));
+                int lv = Math.max(1, o.optInt("level", 1));
+                int pts = o.optInt("points", 0);
+                lvPoints.setText("Lv." + lv + " · " + pts + " 积分");
+                Session.updatePoints(pts, lv);
             }
             @Override public void fail(String msg) {}
         });

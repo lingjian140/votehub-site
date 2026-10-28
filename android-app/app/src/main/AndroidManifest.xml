@@ -50,5 +50,26 @@
         <activity
             android:name=".PostListActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".UserProfileActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".PrivateChatActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".CheckinActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".FriendsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".DevSettingsActivity"
+            android:exported="false" />
     </application>
 </manifest>

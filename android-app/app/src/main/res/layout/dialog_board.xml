@@ -35,4 +35,30 @@
         android:inputType="text"
         android:maxLength="100"
         android:textSize="14sp" />
+
+    <CheckBox
+        android:id="@+id/cb_age"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="仅限年满 16 岁用户进入"
+        android:textSize="13sp" />
+
+    <CheckBox
+        android:id="@+id/cb_password"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="需要密码才能访问"
+        android:textSize="13sp" />
+
+    <EditText
+        android:id="@+id/et_password"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="板块密码（选填，编辑时留空表示不修改）"
+        android:inputType="text"
+        android:maxLength="30"
+        android:textSize="14sp"
+        android:visibility="gone" />
 </LinearLayout>

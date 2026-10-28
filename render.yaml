@@ -6,15 +6,20 @@ services:
     startCommand: node server.js
     envVars:
       - key: JWT_SECRET
-        value: change-me-in-dashboard
         sync: false
       - key: SEED_ADMIN_USERNAME
-        value: xiaomu
+        sync: false
       - key: SEED_ADMIN_PASSWORD
-        value: xiaomu
+        sync: false
       - key: SEED_USER_USERNAME
-        value: aimin
+        sync: false
       - key: SEED_USER_PASSWORD
-        value: mu123123123
+        sync: false
+      - key: BACKUP_REPO
+        sync: false
+      - key: BACKUP_BRANCH
+        sync: false
+      - key: BACKUP_TOKEN
+        sync: false
       - key: NODE_VERSION
         value: "20"
