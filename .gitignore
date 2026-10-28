@@ -5,3 +5,9 @@ data/*.db-wal
 uploads/
 *.log
 .wrangler/
+android-sdk/
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+*.apk
