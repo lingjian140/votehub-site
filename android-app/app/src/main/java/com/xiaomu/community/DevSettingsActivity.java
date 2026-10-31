@@ -69,6 +69,7 @@ public class DevSettingsActivity extends AppCompatActivity {
         findViewById(R.id.btn_export_json).setOnClickListener(v -> exportJsonLauncher.launch("xiaomu-accounts.json"));
         findViewById(R.id.btn_export_csv).setOnClickListener(v -> exportCsvLauncher.launch("xiaomu-accounts.csv"));
         findViewById(R.id.btn_import_json).setOnClickListener(v -> importLauncher.launch("application/json"));
+        findViewById(R.id.btn_send_notice).setOnClickListener(v -> sendNotice());
 
         adapter = new DevRewardAdapter(new DevRewardAdapter.Listener() {
             @Override public void onEdit(JSONObject reward) { editReward(reward); }
@@ -416,6 +417,26 @@ public class DevSettingsActivity extends AppCompatActivity {
                         @Override public void fail(String msg) { toast(msg); }
                     });
                 }).show();
+    }
+
+    private void sendNotice() {
+        String title = ((EditText) findViewById(R.id.et_notice_title)).getText().toString().trim();
+        String content = ((EditText) findViewById(R.id.et_notice_content)).getText().toString().trim();
+        if (title.isEmpty() || content.isEmpty()) { toast("标题和内容都要填写"); return; }
+        JSONObject body = new JSONObject();
+        try {
+            body.put("title", title);
+            body.put("content", content);
+        } catch (Exception ignored) {}
+        Api.post("/api/dev/notice", body, new Api.Cb() {
+            @Override public void ok(JSONObject o) {
+                ((TextView) findViewById(R.id.notice_result)).setText("已发送给 " + o.optInt("users") + " 位用户");
+                ((EditText) findViewById(R.id.et_notice_title)).setText("");
+                ((EditText) findViewById(R.id.et_notice_content)).setText("");
+                toast("官方通知已发送");
+            }
+            @Override public void fail(String msg) { toast(msg); }
+        });
     }
 
     private void doExport(Uri uri, String path) {

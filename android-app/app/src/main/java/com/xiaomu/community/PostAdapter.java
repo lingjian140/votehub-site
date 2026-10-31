@@ -137,12 +137,9 @@ public class PostAdapter extends RecyclerView.Adapter<PostAdapter.VH> {
                         .transform(new RoundedCorners(dp(ctx, 10)))
                         .into(h.videoThumb);
                 h.videoBox.setOnClickListener(v -> {
-                    try {
-                        Intent it = new Intent(Intent.ACTION_VIEW);
-                        it.setDataAndType(Uri.parse(Api.mediaUrl(video)), "video/*");
-                        it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        ctx.startActivity(it);
-                    } catch (Exception ignored) {}
+                    Intent it = new Intent(ctx, VideoPlayerActivity.class);
+                    it.putExtra("video", video);
+                    ctx.startActivity(it);
                 });
             }
         }

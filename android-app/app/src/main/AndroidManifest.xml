@@ -71,5 +71,11 @@
         <activity
             android:name=".DevSettingsActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".VideoPlayerActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="false"
+            android:theme="@style/Theme.Xiaomu" />
     </application>
 </manifest>

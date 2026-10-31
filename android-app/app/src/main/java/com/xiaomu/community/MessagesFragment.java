@@ -36,6 +36,10 @@ public class MessagesFragment extends Fragment {
         swipe = v.findViewById(R.id.swipe);
         empty = v.findViewById(R.id.empty);
         adapter = new NotificationAdapter(n -> {
+            if ("notice".equals(n.optString("type"))) {
+                showNotice(n);
+                return;
+            }
             Intent i = new Intent(getActivity(), PostDetailActivity.class);
             i.putExtra("id", n.optInt("post_id"));
             startActivity(i);
@@ -50,6 +54,19 @@ public class MessagesFragment extends Fragment {
         v.findViewById(R.id.friends_entry).setOnClickListener(x ->
                 startActivity(new Intent(getActivity(), FriendsActivity.class)));
         load();
+    }
+
+    private void showNotice(JSONObject n) {
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(getActivity())
+                .setTitle(n.optString("title", "官方通知"))
+                .setMessage(n.optString("content"))
+                .setPositiveButton("知道了", null)
+                .show();
+        if (n.optInt("read", 0) == 1) return;
+        Api.post("/api/notices/" + n.optInt("notice_id") + "/read", new JSONObject(), new Api.Cb() {
+            @Override public void ok(JSONObject o) { load(); }
+            @Override public void fail(String msg) {}
+        });
     }
 
     private void load() {

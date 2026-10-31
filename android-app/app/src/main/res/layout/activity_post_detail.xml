@@ -206,6 +206,20 @@
                         android:textSize="10sp" />
                 </FrameLayout>
 
+                <TextView
+                    android:id="@+id/p_rm_video"
+                    android:layout_width="wrap_content"
+                    android:layout_height="30dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_chip"
+                    android:gravity="center"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="移除视频"
+                    android:textColor="@color/text_sub"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
                 <LinearLayout
                     android:id="@+id/p_poll"
                     android:layout_width="match_parent"

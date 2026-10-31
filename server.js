@@ -690,8 +690,77 @@ app.get('/api/notifications', requireAuth, (req, res) => {
     WHERE p.user_id = ? AND l.user_id != ?
     ORDER BY l.id DESC LIMIT 30
   `).all(req.user.id, req.user.id);
-  const list = [...comments, ...likes].sort((a, b) => b.id - a.id).slice(0, 50);
-  res.json({ notifications: list });
+  const list = [...comments, ...likes];
+  const notices = db.prepare(`
+    SELECT n.id, n.notice_id, n.title, n.content, n.created_at, n.read
+    FROM (
+      SELECT a.id, a.id AS notice_id, a.title, a.content, a.created_at,
+        EXISTS(SELECT 1 FROM notice_reads r WHERE r.notice_id = a.id AND r.user_id = ?) AS read
+      FROM notices a ORDER BY a.id DESC LIMIT 20
+    ) n
+  `).all(req.user.id);
+  const noticeList = notices.map(n => ({
+    type: 'notice',
+    id: n.id,
+    notice_id: n.notice_id,
+    post_id: 0,
+    title: n.title,
+    content: n.content,
+    created_at: n.created_at,
+    read: n.read ? 1 : 0,
+    username: '官方通知',
+    avatar: '/img/default-leaf.png',
+  }));
+  const merged = [...noticeList, ...list].sort((a, b) => {
+    if (a.type === 'notice' && b.type !== 'notice') return -1;
+    if (b.type === 'notice' && a.type !== 'notice') return 1;
+    return b.id - a.id;
+  }).slice(0, 60);
+  res.json({ notifications: merged, unread_notices: noticeList.filter(n => !n.read).length });
+});
+
+// ===== 官方通知（仅开发者可发送给全体用户）=====
+app.get('/api/notices', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT a.id, a.title, a.content, a.created_at, u.username AS sender,
+      EXISTS(SELECT 1 FROM notice_reads r WHERE r.notice_id = a.id AND r.user_id = ?) AS read
+    FROM notices a LEFT JOIN users u ON u.id = a.user_id
+    ORDER BY a.id DESC LIMIT 50
+  `).all(req.user.id);
+  res.json({ notices: rows });
+});
+
+app.post('/api/notices/:id/read', requireAuth, (req, res) => {
+  const n = db.prepare('SELECT id FROM notices WHERE id = ?').get(req.params.id);
+  if (!n) return res.status(404).json({ error: '通知不存在' });
+  db.prepare('INSERT OR IGNORE INTO notice_reads (notice_id, user_id) VALUES (?, ?)').run(n.id, req.user.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/dev/notice', requireDeveloper, (req, res) => {
+  const title = String(req.body.title || '').trim();
+  const content = String(req.body.content || '').trim();
+  if (!title) return res.status(400).json({ error: '标题不能为空' });
+  if (!content) return res.status(400).json({ error: '内容不能为空' });
+  const info = db.prepare('INSERT INTO notices (title, content, user_id) VALUES (?, ?, ?)')
+    .run(title.slice(0, 100), content.slice(0, 3000), req.user.id);
+  try { backup.backupNow(); } catch (e) {}
+  res.json({ ok: true, id: info.lastInsertRowid, users: db.prepare('SELECT COUNT(*) c FROM users').get().c });
+});
+
+// 移除帖子视频（作者 / 管理员 / 开发者）
+app.delete('/api/posts/:id/video', requireAuth, (req, res) => {
+  const p = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: '帖子不存在' });
+  const owner = Number(p.user_id) === Number(req.user.id);
+  if (!owner && req.user.role !== 'admin' && !isDeveloper(req.user.id)) {
+    return res.status(403).json({ error: '无权操作' });
+  }
+  if (p.video) {
+    try { fs.unlinkSync(path.join(__dirname, p.video)); } catch (e) {}
+  }
+  db.prepare('UPDATE posts SET video = NULL WHERE id = ?').run(p.id);
+  res.json({ ok: true });
 });
 
 // 用户主页

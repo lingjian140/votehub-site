@@ -280,7 +280,10 @@ function postHTML(p, detail) {
       images.map(src => '<img src="' + esc(mediaUrl(src)) + '" alt="" loading="lazy" data-act="image" data-src="' + esc(mediaUrl(src)) + '">').join('') + '</div>'
     : '';
   const video = p.video
-    ? '<div class="video-box"><video src="' + esc(mediaUrl(p.video)) + '#t=0.1" controls playsinline preload="metadata"></video></div>'
+    ? '<div class="video-box"><video src="' + esc(mediaUrl(p.video)) + '#t=0.1" controls playsinline preload="metadata"></video>' +
+      (detail && (Number(p.user_id) === myId() || isAdmin() || isDev())
+        ? '<div style="margin-top:6px"><button class="btn small" data-act="rmvideo" data-id="' + p.id + '">移除视频</button></div>' : '') +
+      '</div>'
     : '';
   const boardName = (state.boards.find(b => b.key === p.topic) || {}).name || '社区';
   const liked = Number(p.liked) === 1 || p.liked === true;
@@ -605,12 +608,21 @@ async function renderMessages() {
   try {
     const n = await api('/api/notifications');
     const list = n.notifications || [];
-    document.getElementById('notif-box').innerHTML = list.length ? list.map(x =>
-      '<div class="list-item" data-act="openpost" data-id="' + x.post_id + '">' +
+    document.getElementById('notif-box').innerHTML = list.length ? list.map(x => {
+      if (x.type === 'notice') {
+        return '<div class="list-item" data-act="notice" data-id="' + x.notice_id + '" data-title="' + esc(x.title) + '" data-content="' + esc(x.content) + '">' +
+          '<div style="width:38px;height:38px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;flex:0 0 auto">📢</div>' +
+          '<div class="grow"><div class="who">' + esc(x.title) +
+          (Number(x.read) ? '' : ' <span class="chip on" style="padding:1px 7px;font-size:10px">新</span>') + '</div>' +
+          '<div class="muted ellipsis">' + esc(x.content) + '</div>' +
+          '<div class="muted ellipsis">官方通知 · ' + ago(x.created_at) + '</div></div></div>';
+      }
+      return '<div class="list-item" data-act="openpost" data-id="' + x.post_id + '">' +
         '<img src="' + esc(mediaUrl(x.avatar)) + '" alt="">' +
         '<div class="grow"><div class="who">' + esc(x.username || '系统') + '</div>' +
         '<div class="muted ellipsis">' + (x.type === 'like' ? '赞了你的帖子' : '评论：' + esc(x.content || '')) + '</div>' +
-        '<div class="muted ellipsis">' + esc(x.post_title || '') + ' · ' + ago(x.created_at) + '</div></div></div>').join('')
+        '<div class="muted ellipsis">' + esc(x.post_title || '') + ' · ' + ago(x.created_at) + '</div></div></div>';
+    }).join('')
       : '<div class="empty">暂时没有新通知</div>';
   } catch (e) { document.getElementById('notif-box').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
 }
@@ -939,7 +951,7 @@ async function renderDev() {
   const rewards = data.rewards || [];
   const redemptions = data.redemptions || [];
   const tab = state.devTab;
-  const tabs = [['shop', '签到 / 商城'], ['titles', '头衔'], ['users', '用户等级'], ['data', '导入导出']];
+  const tabs = [['shop', '签到 / 商城'], ['titles', '头衔'], ['users', '用户等级'], ['notice', '官方通知'], ['data', '导入导出']];
 
   let body = '';
   if (tab === 'shop') {
@@ -993,6 +1005,16 @@ async function renderDev() {
               '<button class="btn small primary" data-act="saveuser" data-id="' + u.id + '">保存</button>' +
             '</div></div></div>').join('')
         : '<div class="empty">暂无用户</div>') + '</div>';
+  } else if (tab === 'notice') {
+    body =
+      '<div class="card pad">' +
+        '<div class="section-title" style="margin-top:0">发送官方通知</div>' +
+        '<div class="muted" style="margin-bottom:10px">仅开发者可发送，发送后全体用户都会在「消息 → 通知」中收到。</div>' +
+        '<label class="field"><span>标题</span><input id="notice-title" maxlength="100" placeholder="例如：社区更新公告"></label>' +
+        '<label class="field"><span>内容</span><textarea id="notice-content" rows="5" maxlength="3000" placeholder="填写通知内容…"></textarea></label>' +
+        '<button class="btn small primary" id="notice-send">发送给全部用户</button>' +
+        '<div id="notice-result" class="sub" style="margin-top:8px"></div>' +
+      '</div>';
   } else {
     body =
       '<div class="card pad">' +
@@ -1023,6 +1045,20 @@ async function renderDev() {
       try {
         await api('/api/admin/settings/checkin', { method: 'PUT', body: { points } });
         toast('签到积分已更新');
+      } catch (e) { toast(e.message); }
+    };
+  }
+  if (tab === 'notice') {
+    document.getElementById('notice-send').onclick = async () => {
+      const title = document.getElementById('notice-title').value.trim();
+      const content = document.getElementById('notice-content').value.trim();
+      if (!title || !content) return toast('标题和内容都要填写');
+      try {
+        const r = await api('/api/dev/notice', { method: 'POST', body: { title, content } });
+        document.getElementById('notice-result').textContent = '已发送给 ' + r.users + ' 位用户';
+        document.getElementById('notice-title').value = '';
+        document.getElementById('notice-content').value = '';
+        toast('官方通知已发送');
       } catch (e) { toast(e.message); }
     };
   }
@@ -1069,6 +1105,20 @@ document.addEventListener('click', async e => {
   if (act === 'sort') { state.home.sort = el.dataset.sort; state.home.page = 1; renderHome(); return; }
   if (act === 'user') { if (id) location.hash = '#/user/' + id; return; }
   if (act === 'openpost') { if (id) location.hash = '#/post/' + id; return; }
+  if (act === 'rmvideo') {
+    if (!confirm('确定移除这条帖子的视频？')) return;
+    try { await api('/api/posts/' + id + '/video', { method: 'DELETE' }); toast('视频已移除'); renderPost(id); }
+    catch (e) { toast(e.message); }
+    return;
+  }
+  if (act === 'notice') {
+    try { await api('/api/notices/' + id + '/read', { method: 'POST' }); } catch (e) {}
+    await openModal(el.dataset.title || '官方通知',
+      '<div class="content" style="white-space:pre-wrap">' + esc(el.dataset.content || '') + '</div>',
+      { hideCancel: true, okText: '知道了' });
+    renderMessages();
+    return;
+  }
   if (act === 'image') { window.open(el.dataset.src, '_blank'); return; }
   if (act === 'share') {
     const url = location.origin + '/#/post/' + id;

@@ -275,6 +275,21 @@ CREATE TABLE IF NOT EXISTS titles (
   color TEXT DEFAULT '#00B34F',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS notices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  user_id INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notice_reads (
+  notice_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (notice_id, user_id)
+);
 `);
 
 // 默认头像改为 PNG（Android 端 Glide 不支持 SVG）

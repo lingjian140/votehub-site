@@ -260,6 +260,62 @@
                 android:layout_marginTop="8dp"
                 android:textColor="@color/text_sub"
                 android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_marginTop="18dp"
+                android:text="官方通知（发送给全部用户）"
+                android:textColor="@color/text"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/et_notice_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_card"
+                android:hint="通知标题"
+                android:maxLength="100"
+                android:padding="12dp"
+                android:textColor="@color/text"
+                android:textColorHint="@color/muted"
+                android:textSize="13sp" />
+
+            <EditText
+                android:id="@+id/et_notice_content"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_card"
+                android:gravity="top"
+                android:hint="通知内容"
+                android:minLines="4"
+                android:padding="12dp"
+                android:textColor="@color/text"
+                android:textColorHint="@color/muted"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/btn_send_notice"
+                android:layout_width="match_parent"
+                android:layout_height="38dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_btn_green"
+                android:gravity="center"
+                android:text="发送官方通知"
+                android:textColor="@color/white"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/notice_result"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/text_sub"
+                android:textSize="12sp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

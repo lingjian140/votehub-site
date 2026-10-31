@@ -39,14 +39,21 @@ public class NotificationAdapter extends RecyclerView.Adapter<NotificationAdapte
     @Override
     public void onBindViewHolder(@NonNull VH h, int position) {
         JSONObject n = data.get(position);
-        String name = n.optString("username", "有人");
-        String text = "comment".equals(n.optString("type"))
-                ? name + " 评论了你的帖子：" + n.optString("content")
-                : name + " 赞了你的帖子";
-        h.text.setText(text);
+        String type = n.optString("type");
+        if ("notice".equals(type)) {
+            h.text.setText("📢 官方通知：" + n.optString("title") + "\n" + n.optString("content"));
+            Glide.with(h.itemView.getContext()).load(Api.mediaUrl("/img/default-leaf.png"))
+                    .circleCrop().into(h.avatar);
+        } else {
+            String name = n.optString("username", "有人");
+            String text = "comment".equals(type)
+                    ? name + " 评论了你的帖子：" + n.optString("content")
+                    : name + " 赞了你的帖子";
+            h.text.setText(text);
+            Glide.with(h.itemView.getContext()).load(Api.mediaUrl(n.optString("avatar")))
+                    .circleCrop().into(h.avatar);
+        }
         h.time.setText(TimeUtil.ago(n.optString("created_at")));
-        Glide.with(h.itemView.getContext()).load(Api.mediaUrl(n.optString("avatar")))
-                .circleCrop().into(h.avatar);
         h.itemView.setOnClickListener(v -> click.click(n));
     }
 

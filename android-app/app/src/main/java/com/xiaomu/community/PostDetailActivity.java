@@ -139,13 +139,22 @@ public class PostDetailActivity extends AppCompatActivity {
                         .apply(RequestOptions.frameOf(0))
                         .into((ImageView) findViewById(R.id.p_video_thumb));
                 videoBox.setOnClickListener(v -> {
-                    try {
-                        Intent it = new Intent(Intent.ACTION_VIEW);
-                        it.setDataAndType(android.net.Uri.parse(Api.mediaUrl(videoPath)), "video/*");
-                        it.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        startActivity(it);
-                    } catch (Exception ignored) { toast("无法播放该视频"); }
+                    Intent it = new Intent(PostDetailActivity.this, VideoPlayerActivity.class);
+                    it.putExtra("video", videoPath);
+                    startActivity(it);
                 });
+                TextView rmVideo = findViewById(R.id.p_rm_video);
+                boolean canRemove = post.optInt("user_id") == Session.userId()
+                        || Session.isAdmin() || Session.isDeveloper();
+                rmVideo.setVisibility(canRemove ? View.VISIBLE : View.GONE);
+                rmVideo.setOnClickListener(v -> new MaterialAlertDialogBuilder(this)
+                        .setTitle("移除视频")
+                        .setMessage("确定移除这条帖子的视频？")
+                        .setPositiveButton("移除", (d, w) -> Api.delete("/api/posts/" + postId + "/video", new Api.Cb() {
+                            @Override public void ok(JSONObject o) { toast("视频已移除"); load(); }
+                            @Override public void fail(String msg) { toast(msg); }
+                        }))
+                        .setNegativeButton("取消", null).show());
             }
 
             bindPoll();
