@@ -2,7 +2,7 @@ FROM node:20-bookworm-slim
 
 ENV TZ=Asia/Shanghai
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata curl tar ca-certificates \
+ && apt-get install -y --no-install-recommends tzdata curl tar ca-certificates python3 make g++ \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
