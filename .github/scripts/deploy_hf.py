@@ -3,6 +3,7 @@ import os
 import sys
 
 from huggingface_hub import HfApi, create_repo, upload_folder
+from huggingface_hub.errors import HfHubHTTPError
 
 README = """---
 title: 小木社区
@@ -28,7 +29,17 @@ def main() -> None:
 
     repo_id = os.environ.get("SPACE_REPO", "linqing66/xiaomu-community")
     api = HfApi(token=token)
-    create_repo(repo_id, repo_type="space", space_sdk="docker", exist_ok=True, private=False)
+    if not api.repo_exists(repo_id, repo_type="space"):
+        try:
+            create_repo(repo_id, repo_type="space", space_sdk="docker", exist_ok=True, private=False)
+        except HfHubHTTPError as e:
+            if "402" in str(e):
+                sys.exit(
+                    "HF 拒绝由 API 创建 Space（402 Payment Required）。"
+                    "请先在 https://huggingface.co/new-space 手动创建："
+                    "Owner=linqing66，Space name=xiaomu-community，SDK=Docker，Public。"
+                )
+            raise
 
     # JWT 密钥由备份 token 派生：跨次部署保持稳定，且不写进公开仓库
     jwt_secret = hashlib.sha256(("votehub-jwt-" + backup).encode()).hexdigest()
