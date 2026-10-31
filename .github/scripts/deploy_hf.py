@@ -1,7 +1,9 @@
 import hashlib
 import os
 import sys
+import time
 
+import requests
 from huggingface_hub import HfApi, create_repo, upload_folder
 from huggingface_hub.errors import HfHubHTTPError
 
@@ -87,7 +89,31 @@ def main() -> None:
     runtime = api.get_space_runtime(repo_id)
     print("stage before restart:", runtime.stage)
     api.restart_space(repo_id, factory_reboot=True)
-    print("stage after restart:", api.get_space_runtime(repo_id).stage)
+    for _ in range(24):
+        time.sleep(5)
+        stage = api.get_space_runtime(repo_id).stage
+        print("stage:", stage)
+        if stage in ("RUNNING", "BUILDING", "RUNNING_BUILDING"):
+            break
+
+    if api.get_space_runtime(repo_id).stage == "PAUSED":
+        print("Space 仍处于 PAUSED，抓取构建日志：")
+        try:
+            url = f"https://huggingface.co/api/spaces/{repo_id}/logs/build"
+            with requests.get(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                stream=True,
+                timeout=30,
+            ) as r:
+                print("logs status:", r.status_code)
+                for i, line in enumerate(r.iter_lines(decode_unicode=True)):
+                    if line:
+                        print(line[:300])
+                    if i > 200:
+                        break
+        except Exception as exc:  # noqa: BLE001
+            print("日志抓取失败:", exc)
 
 
 if __name__ == "__main__":
