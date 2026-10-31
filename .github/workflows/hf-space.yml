@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install huggingface_hub
-        run: pip install -q "huggingface_hub>=0.26"
+        run: pip install -q "huggingface_hub>=0.26" requests
 
       - name: Push to Hugging Face Space
         env:
