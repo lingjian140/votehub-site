@@ -1,5 +1,6 @@
 name: deploy-hf-space
 
+# 推送到 main 自动部署到 Hugging Face Space
 on:
   push:
     branches: [main]
