@@ -88,6 +88,11 @@ def main() -> None:
 
     runtime = api.get_space_runtime(repo_id)
     print("stage before restart:", runtime.stage)
+    print("runtime raw:", runtime.raw)
+    info = api.repo_info(repo_id, repo_type="space")
+    print("space runtime info:", getattr(info, "runtime", None))
+    api.pause_space(repo_id)
+    time.sleep(3)
     api.restart_space(repo_id, factory_reboot=True)
     for _ in range(24):
         time.sleep(5)
