@@ -87,3 +87,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# 说明：Space 由网页创建后，本脚本只推送代码与注入 secrets。
