@@ -21,7 +21,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 public class Api {
-    public static final String BASE = "https://votehub-1644.onrender.com";
+    public static final String BASE = "https://linqing66-xiaomu-community.hf.space";
     private static final MediaType JSON_TYPE = MediaType.parse("application/json; charset=utf-8");
     private static final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
