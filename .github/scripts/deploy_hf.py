@@ -84,6 +84,11 @@ def main() -> None:
     print("Space updated:", api.repo_info(repo_id, repo_type="space").id)
     print("URL: https://" + repo_id.replace("/", "-") + ".hf.space")
 
+    runtime = api.get_space_runtime(repo_id)
+    print("stage before restart:", runtime.stage)
+    api.restart_space(repo_id, factory_reboot=True)
+    print("stage after restart:", api.get_space_runtime(repo_id).stage)
+
 
 if __name__ == "__main__":
     main()
